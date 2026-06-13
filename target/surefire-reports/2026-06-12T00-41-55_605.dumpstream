@@ -1,0 +1,5 @@
+# Created at 2026-06-12T00:41:57.696
+Boot Manifest-JAR contains absolute paths in classpath 'D:\wks\flaper-solutions-ti\Proyectos\sistema-barberia\back-end\target\test-classes'
+Hint: <argLine>-Djdk.net.URLClassPath.disableClassPathURLCheck=true</argLine>
+'other' has different root
+
