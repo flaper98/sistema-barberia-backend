@@ -4,6 +4,7 @@ import com.barberia.common.ApiResponse;
 import com.barberia.common.PageResponse;
 import com.barberia.modules.workers.dto.BarberoRequest;
 import com.barberia.modules.workers.dto.BarberoResponse;
+import com.barberia.modules.workers.dto.BarberoSelectorResponse;
 import com.barberia.modules.workers.dto.BarberoSummaryResponse;
 import com.barberia.modules.workers.service.BarberoService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -20,6 +21,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -30,6 +32,15 @@ import java.util.Map;
 public class BarberoController {
 
     private final BarberoService barberoService;
+
+    @Operation(summary = "Listar barberos activos para un selector (ej. elegir quién atendió al vender)",
+               description = "Versión mínima sin comisión ni total generado — disponible para cualquier " +
+                       "usuario autenticado, sin depender del permiso del módulo Barberos.")
+    @GetMapping("/for-sale")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<List<BarberoSelectorResponse>>> listarParaSelector() {
+        return ResponseEntity.ok(ApiResponse.ok(barberoService.listarParaSelector()));
+    }
 
     @Operation(summary = "Listar barberos activos")
     @GetMapping
@@ -50,18 +61,18 @@ public class BarberoController {
         return ResponseEntity.ok(ApiResponse.ok(barberoService.obtenerPorId(id)));
     }
 
-    @Operation(summary = "Crear barbero", description = "Solo ADMIN")
+    @Operation(summary = "Crear barbero")
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<BarberoResponse>> crear(
             @Valid @RequestBody BarberoRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.created(barberoService.crear(request)));
     }
 
-    @Operation(summary = "Actualizar barbero", description = "Solo ADMIN")
+    @Operation(summary = "Actualizar barbero")
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<BarberoResponse>> actualizar(
             @PathVariable Integer id,
             @Valid @RequestBody BarberoRequest request) {
@@ -71,7 +82,7 @@ public class BarberoController {
 
     @Operation(summary = "Cambiar estado del barbero")
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<Void>> cambiarEstado(
             @PathVariable Integer id,
             @RequestBody Map<String, Boolean> body) {
@@ -83,11 +94,19 @@ public class BarberoController {
         return ResponseEntity.ok(ApiResponse.ok("Estado actualizado correctamente"));
     }
 
+    @Operation(summary = "Eliminar barbero (deshabilitación lógica)")
+    @DeleteMapping("/{id}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Void>> eliminar(@PathVariable Integer id) {
+        barberoService.eliminar(id);
+        return ResponseEntity.ok(ApiResponse.ok("Barbero deshabilitado correctamente"));
+    }
+
     @Operation(summary = "Resumen de ingresos y comisiones por barbero",
                description = "Filtra por rango de fechas. Por defecto el mes actual.")
     @GetMapping("/{id}/summary")
     @PreAuthorize("hasRole('ADMIN') or " +
-                  "(hasRole('BARBER') and #id == authentication.principal.usuario.id)")
+                  "(hasRole('BARBER') and #id == authentication.principal.usuario.barberoId)")
     public ResponseEntity<ApiResponse<BarberoSummaryResponse>> resumen(
             @PathVariable Integer id,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,

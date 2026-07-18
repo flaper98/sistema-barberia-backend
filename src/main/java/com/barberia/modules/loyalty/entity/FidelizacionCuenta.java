@@ -41,6 +41,9 @@ public class FidelizacionCuenta {
     @Builder.Default
     private Integer totalSellosAcumulados = 0;
 
+    @Column(name = "descripcion_recompensa", length = 255)
+    private String descripcionRecompensa;
+
     @Column(name = "ultimo_movimiento")
     private LocalDateTime ultimoMovimiento;
 }

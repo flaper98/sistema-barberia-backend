@@ -30,4 +30,10 @@ public class ConfiguracionBarberiaRequest {
 
     @Size(max = 500)
     private String logoUrl;
+
+    @Size(max = 500, message = "El mensaje no puede superar 500 caracteres")
+    private String mensajeBienvenidaWhatsapp;
+
+    @Size(max = 500, message = "El mensaje no puede superar 500 caracteres")
+    private String mensajeRecordatorioWhatsapp;
 }

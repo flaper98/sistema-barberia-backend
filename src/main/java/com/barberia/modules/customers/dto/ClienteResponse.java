@@ -23,6 +23,7 @@ public class ClienteResponse {
     private final Boolean estado;
     private final Integer cantidadSellos;
     private final Integer recompensasDisponibles;
+    private final String descripcionRecompensa;
     private final LocalDate ultimaVisita;
     private final LocalDateTime createdAt;
     private final LocalDateTime updatedAt;

@@ -47,18 +47,18 @@ public class ServicioController {
         return ResponseEntity.ok(ApiResponse.ok(servicioBiz.obtenerPorId(id)));
     }
 
-    @Operation(summary = "Crear servicio", description = "Solo ADMIN")
+    @Operation(summary = "Crear servicio")
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<ServicioResponse>> crear(
             @Valid @RequestBody ServicioRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.created(servicioBiz.crear(request)));
     }
 
-    @Operation(summary = "Actualizar servicio", description = "Solo ADMIN")
+    @Operation(summary = "Actualizar servicio")
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<ServicioResponse>> actualizar(
             @PathVariable Integer id,
             @Valid @RequestBody ServicioRequest request) {
@@ -67,11 +67,19 @@ public class ServicioController {
 
     @Operation(summary = "Activar o desactivar servicio")
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<Void>> cambiarEstado(
             @PathVariable Integer id,
             @RequestBody Map<String, Boolean> body) {
         servicioBiz.cambiarEstado(id, body.getOrDefault("estado", true));
         return ResponseEntity.ok(ApiResponse.ok("Estado actualizado correctamente"));
+    }
+
+    @Operation(summary = "Eliminar servicio")
+    @DeleteMapping("/{id}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Void>> eliminar(@PathVariable Integer id) {
+        servicioBiz.cambiarEstado(id, false);
+        return ResponseEntity.ok(ApiResponse.ok("Servicio eliminado correctamente"));
     }
 }

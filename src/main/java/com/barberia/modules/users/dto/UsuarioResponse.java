@@ -19,6 +19,7 @@ public class UsuarioResponse {
     private final String rol;
     private final Boolean estado;
     private final String avatar;
+    private final Integer barberoId;
     private final LocalDateTime ultimoAcceso;
     private final LocalDateTime createdAt;
     private final LocalDateTime updatedAt;

@@ -8,7 +8,6 @@ import org.mapstruct.Mapping;
 @Mapper(componentModel = "spring")
 public interface ProductoMapper {
 
-    @Mapping(target = "categoria", expression = "java(producto.getCategoria().name())")
     @Mapping(target = "stockBajo", expression = "java(producto.isStockBajo())")
     @Mapping(target = "unidadesFaltantes",
              expression = "java(Math.max(0, producto.getStockMinimo() - producto.getStockActual()))")

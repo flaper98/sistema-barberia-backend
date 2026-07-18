@@ -2,9 +2,11 @@ package com.barberia.modules.users.controller;
 
 import com.barberia.common.ApiResponse;
 import com.barberia.common.PageResponse;
+import com.barberia.modules.users.dto.CambiarPasswordRequest;
 import com.barberia.modules.users.dto.UsuarioRequest;
 import com.barberia.modules.users.dto.UsuarioResponse;
 import com.barberia.modules.users.service.UsuarioService;
+import com.barberia.security.CustomUserDetails;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -16,6 +18,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -80,6 +83,16 @@ public class UsuarioController {
         }
         usuarioService.cambiarEstado(id, estado);
         return ResponseEntity.ok(ApiResponse.ok("Estado actualizado correctamente"));
+    }
+
+    @Operation(summary = "Cambiar mi propia contraseña", description = "Cualquier usuario autenticado puede cambiar su propia contraseña")
+    @PatchMapping("/me/password")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Void>> cambiarMiPassword(
+            @AuthenticationPrincipal CustomUserDetails principal,
+            @Valid @RequestBody CambiarPasswordRequest request) {
+        usuarioService.cambiarMiPassword(principal.getId(), request);
+        return ResponseEntity.ok(ApiResponse.ok("Contraseña actualizada correctamente"));
     }
 
     @Operation(summary = "Eliminar usuario (deshabilitación lógica)")

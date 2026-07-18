@@ -10,14 +10,21 @@ import com.barberia.modules.customers.dto.ClienteResponse;
 import com.barberia.modules.customers.entity.Cliente;
 import com.barberia.modules.customers.mapper.ClienteMapper;
 import com.barberia.modules.customers.repository.ClienteRepository;
+import com.barberia.modules.customers.repository.ClienteSpecifications;
 import com.barberia.modules.customers.service.ClienteService;
+import com.barberia.common.carddav.CardDavContactData;
+import com.barberia.modules.google.service.GoogleSyncService;
+import com.barberia.modules.icloud.service.IcloudSyncService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+
+import java.time.LocalDate;
 
 @Slf4j
 @Service
@@ -27,13 +34,27 @@ public class ClienteServiceImpl implements ClienteService {
     private final ClienteRepository clienteRepository;
     private final ClienteMapper clienteMapper;
     private final AuditPublisher auditPublisher;
+    private final IcloudSyncService icloudSyncService;
+    private final GoogleSyncService googleSyncService;
 
     @Override
     @Transactional(readOnly = true)
     public PageResponse<ClienteResponse> listarClientes(String search, Pageable pageable) {
-        Page<Cliente> page = StringUtils.hasText(search)
-                ? clienteRepository.searchActivos(search.trim(), pageable)
-                : clienteRepository.findByEstadoTrue(pageable);
+        return buscarConFiltros(search, null, null, null, null, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<ClienteResponse> buscarConFiltros(
+            String search, Integer sellosMin, Boolean conRecompensa,
+            Boolean nuncaVisito, LocalDate inactivoDesde, Pageable pageable) {
+        Specification<Cliente> spec = Specification.where(ClienteSpecifications.activo())
+                .and(ClienteSpecifications.conTexto(search))
+                .and(ClienteSpecifications.sellosMin(sellosMin))
+                .and(ClienteSpecifications.conRecompensa(conRecompensa))
+                .and(ClienteSpecifications.nuncaVisito(nuncaVisito))
+                .and(ClienteSpecifications.inactivoDesde(inactivoDesde));
+        Page<Cliente> page = clienteRepository.findAll(spec, pageable);
         return PageResponse.from(page.map(clienteMapper::toResponse));
     }
 
@@ -68,6 +89,13 @@ public class ClienteServiceImpl implements ClienteService {
                 "CLIENTE", cliente.getId().toString(),
                 "Cliente creado: " + cliente.getNombreCompleto());
         log.info("Cliente creado ID={}", cliente.getId());
+
+        CardDavContactData contactoDav = new CardDavContactData(
+                cliente.getId(), cliente.getNombre(), cliente.getApellido(),
+                cliente.getTelefono(), cliente.getCorreo());
+        icloudSyncService.sincronizarClienteAsync(contactoDav);
+        googleSyncService.sincronizarClienteAsync(contactoDav);
+
         return clienteMapper.toResponse(cliente);
     }
 

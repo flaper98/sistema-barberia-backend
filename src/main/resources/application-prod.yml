@@ -1,4 +1,8 @@
 spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/barberia_db?useSSL=false&serverTimezone=America/Lima&allowPublicKeyRetrieval=true&characterEncoding=UTF-8
+    username: root
+    password: ""
   jpa:
     show-sql: false
     properties:
@@ -7,6 +11,16 @@ spring:
 
 server:
   port: 8080
+
+app:
+  jwt:
+    secret: prod-server-key-arabes-barber-studio-2026-fixed-256bit-secret-do-not-share
+    expiration: 86400000
+    refresh-expiration: 604800000
+  cors:
+    allowed-origins: "*"
+  security:
+    encryption-key: "lYas6PllS/jXzrs2BDwEa9Ok4giQ5jTb3pGXJA1x17s="
 
 logging:
   level:

@@ -48,7 +48,7 @@ public class ProductoController {
 
     @Operation(summary = "Productos con stock bajo o agotado")
     @GetMapping("/low-stock")
-    @PreAuthorize("hasAnyRole('ADMIN','CASHIER')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<PageResponse<ProductoResponse>>> stockBajo(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -56,18 +56,18 @@ public class ProductoController {
         return ResponseEntity.ok(ApiResponse.ok(productoBiz.listarConStockBajo(pageable)));
     }
 
-    @Operation(summary = "Crear producto", description = "Solo ADMIN")
+    @Operation(summary = "Crear producto")
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<ProductoResponse>> crear(
             @Valid @RequestBody ProductoRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.created(productoBiz.crear(request)));
     }
 
-    @Operation(summary = "Actualizar producto", description = "Solo ADMIN")
+    @Operation(summary = "Actualizar producto")
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<ProductoResponse>> actualizar(
             @PathVariable Integer id,
             @Valid @RequestBody ProductoRequest request) {
@@ -76,11 +76,19 @@ public class ProductoController {
 
     @Operation(summary = "Activar o desactivar producto")
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<Void>> cambiarEstado(
             @PathVariable Integer id,
             @RequestBody Map<String, Boolean> body) {
         productoBiz.cambiarEstado(id, body.getOrDefault("estado", true));
         return ResponseEntity.ok(ApiResponse.ok("Estado actualizado correctamente"));
+    }
+
+    @Operation(summary = "Eliminar producto")
+    @DeleteMapping("/{id}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Void>> eliminar(@PathVariable Integer id) {
+        productoBiz.cambiarEstado(id, false);
+        return ResponseEntity.ok(ApiResponse.ok("Producto eliminado correctamente"));
     }
 }

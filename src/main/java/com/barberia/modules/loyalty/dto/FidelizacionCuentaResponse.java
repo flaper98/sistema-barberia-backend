@@ -18,5 +18,6 @@ public class FidelizacionCuentaResponse {
     private final Integer recompensasDisponibles;
     private final Integer recompensasCanjeadas;
     private final Integer totalSellosAcumulados;
+    private final String descripcionRecompensa;
     private final LocalDateTime ultimoMovimiento;
 }

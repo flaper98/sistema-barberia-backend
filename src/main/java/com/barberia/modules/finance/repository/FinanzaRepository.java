@@ -12,6 +12,7 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Optional;
 
 @Repository
 public interface FinanzaRepository extends JpaRepository<Finanza, Integer> {
@@ -35,4 +36,8 @@ public interface FinanzaRepository extends JpaRepository<Finanza, Integer> {
             @Param("tipo") TipoFinanza tipo,
             @Param("desde") LocalDate desde,
             @Param("hasta") LocalDate hasta);
+
+    void deleteByVentaId(Integer ventaId);
+
+    Optional<Finanza> findByVentaId(Integer ventaId);
 }

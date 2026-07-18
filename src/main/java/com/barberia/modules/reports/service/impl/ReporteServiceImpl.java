@@ -25,52 +25,56 @@ public class ReporteServiceImpl {
     private final EntityManager em;
 
     @Transactional(readOnly = true)
-    public DashboardResponse getDashboard() {
+    public DashboardResponse getDashboard(Integer barberoScopeId) {
         LocalDate hoy = LocalDate.now();
-        LocalDate inicioMes = hoy.withDayOfMonth(1);
 
-        BigDecimal ingresosHoy = calcularIngresosVentasHoy();
-        Long ventasHoy = contarVentasHoy();
+        BigDecimal ingresosHoy = calcularIngresosVentasHoy(barberoScopeId);
+        Long ventasHoy = contarVentasHoy(barberoScopeId);
         Long citasHoy = contarCitasHoy();
-        Long citasPendientes = contarCitasPendientes();
+        Long clientesAtendidos = contarClientesAtendidosHoy(barberoScopeId);
         Integer stockBajo = countProductosStockBajo();
-        Long clientesConRecompensa = contarClientesConRecompensa();
+        Long recompensasPendientes = contarClientesConRecompensa();
 
-        BigDecimal ingresosDelMes = finanzaRepository.sumByTipoAndFecha(TipoFinanza.INGRESO, inicioMes, hoy);
-        BigDecimal egresosDelMes  = finanzaRepository.sumByTipoAndFecha(TipoFinanza.EGRESO,  inicioMes, hoy);
-        BigDecimal utilidad = ingresosDelMes.subtract(egresosDelMes);
+        String barberoTopNombre = null;
+        BigDecimal barberoTopMonto = BigDecimal.ZERO;
 
-        List<DashboardResponse.BarberoResumenDto> topBarberos = getTopBarberos(inicioMes, hoy);
+        if (barberoScopeId == null) {
+            Object[] topBarbero = obtenerTopBarberoDelDia(hoy);
+            barberoTopNombre = topBarbero != null ? (String) topBarbero[0] : null;
+            barberoTopMonto = topBarbero != null ? (BigDecimal) topBarbero[1] : BigDecimal.ZERO;
+        }
 
         return DashboardResponse.builder()
-                .ingresosHoy(ingresosHoy)
                 .ventasHoy(ventasHoy)
+                .ingresosHoy(ingresosHoy)
                 .citasHoy(citasHoy)
-                .citasPendientes(citasPendientes)
+                .clientesAtendidos(clientesAtendidos)
                 .productosStockBajo(stockBajo)
-                .clientesConRecompensa(clientesConRecompensa)
-                .ingresosDelMes(ingresosDelMes)
-                .egresosDelMes(egresosDelMes)
-                .utilidadDelMes(utilidad)
-                .topBarberos(topBarberos)
+                .barberoTopNombre(barberoTopNombre)
+                .barberoTopMonto(barberoTopMonto)
+                .recompensasPendientes(recompensasPendientes)
                 .build();
     }
 
-    private BigDecimal calcularIngresosVentasHoy() {
-        List<?> result = em.createNativeQuery(
-                "SELECT COALESCE(SUM(total), 0) FROM ventas " +
-                "WHERE DATE(fecha) = CURDATE() AND estado = 'COMPLETADA'")
-                .getResultList();
+    private BigDecimal calcularIngresosVentasHoy(Integer barberoId) {
+        String sql = "SELECT COALESCE(SUM(total), 0) FROM ventas " +
+                "WHERE DATE(fecha) = CURDATE() AND estado = 'COMPLETADA'" +
+                (barberoId != null ? " AND barbero_id = :barberoId" : "");
+        var query = em.createNativeQuery(sql);
+        if (barberoId != null) query.setParameter("barberoId", barberoId);
+        List<?> result = query.getResultList();
         if (!result.isEmpty() && result.get(0) != null) {
             return (BigDecimal) result.get(0);
         }
         return BigDecimal.ZERO;
     }
 
-    private Long contarVentasHoy() {
-        List<?> result = em.createNativeQuery(
-                "SELECT COUNT(*) FROM ventas WHERE DATE(fecha) = CURDATE() AND estado = 'COMPLETADA'")
-                .getResultList();
+    private Long contarVentasHoy(Integer barberoId) {
+        String sql = "SELECT COUNT(*) FROM ventas WHERE DATE(fecha) = CURDATE() AND estado = 'COMPLETADA'" +
+                (barberoId != null ? " AND barbero_id = :barberoId" : "");
+        var query = em.createNativeQuery(sql);
+        if (barberoId != null) query.setParameter("barberoId", barberoId);
+        List<?> result = query.getResultList();
         return result.isEmpty() ? 0L : ((Number) result.get(0)).longValue();
     }
 
@@ -81,11 +85,14 @@ public class ReporteServiceImpl {
         return result.isEmpty() ? 0L : ((Number) result.get(0)).longValue();
     }
 
-    private Long contarCitasPendientes() {
-        List<?> result = em.createNativeQuery(
-                "SELECT COUNT(*) FROM citas WHERE fecha >= CURDATE() AND estado IN ('PENDIENTE','CONFIRMADA')")
-                .getResultList();
-        return result.isEmpty() ? 0L : ((Number) result.get(0)).longValue();
+    private Long contarClientesAtendidosHoy(Integer barberoId) {
+        String sql = "SELECT COUNT(DISTINCT cliente_id) FROM ventas " +
+                "WHERE DATE(fecha) = CURDATE() AND estado = 'COMPLETADA' AND cliente_id IS NOT NULL" +
+                (barberoId != null ? " AND barbero_id = :barberoId" : "");
+        var query = em.createNativeQuery(sql);
+        if (barberoId != null) query.setParameter("barberoId", barberoId);
+        List<?> result = query.getResultList();
+        return result.isEmpty() || result.get(0) == null ? 0L : ((Number) result.get(0)).longValue();
     }
 
     private Long contarClientesConRecompensa() {
@@ -103,36 +110,16 @@ public class ReporteServiceImpl {
     }
 
     @SuppressWarnings("unchecked")
-    private List<DashboardResponse.BarberoResumenDto> getTopBarberos(LocalDate desde, LocalDate hasta) {
+    private Object[] obtenerTopBarberoDelDia(LocalDate hoy) {
         List<Object[]> rows = em.createNativeQuery(
-                "SELECT b.id, CONCAT(b.nombre, ' ', b.apellido), b.porcentaje_comision, " +
-                "COUNT(v.id), COALESCE(SUM(v.total), 0) " +
+                "SELECT CONCAT(b.nombre, ' ', b.apellido), COALESCE(SUM(v.total), 0) " +
                 "FROM barberos b " +
-                "LEFT JOIN ventas v ON v.barbero_id = b.id AND v.estado = 'COMPLETADA' " +
-                "AND DATE(v.fecha) BETWEEN :desde AND :hasta " +
-                "WHERE b.estado = 1 " +
-                "GROUP BY b.id, b.nombre, b.apellido, b.porcentaje_comision " +
-                "ORDER BY SUM(v.total) DESC LIMIT 5")
-                .setParameter("desde", desde)
-                .setParameter("hasta", hasta)
+                "JOIN ventas v ON v.barbero_id = b.id AND v.estado = 'COMPLETADA' AND DATE(v.fecha) = :hoy " +
+                "GROUP BY b.id, b.nombre, b.apellido " +
+                "ORDER BY SUM(v.total) DESC LIMIT 1")
+                .setParameter("hoy", hoy)
                 .getResultList();
-
-        List<DashboardResponse.BarberoResumenDto> list = new ArrayList<>();
-        for (Object[] row : rows) {
-            BigDecimal ingresos = row[4] != null ? (BigDecimal) row[4] : BigDecimal.ZERO;
-            BigDecimal pct = row[2] != null ? (BigDecimal) row[2] : BigDecimal.ZERO;
-            BigDecimal comision = ingresos.multiply(pct)
-                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-
-            list.add(DashboardResponse.BarberoResumenDto.builder()
-                    .id(((Number) row[0]).intValue())
-                    .nombre((String) row[1])
-                    .ventas(((Number) row[3]).longValue())
-                    .ingresos(ingresos)
-                    .comision(comision)
-                    .build());
-        }
-        return list;
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     // -------------------------------------------------------------------------
@@ -140,7 +127,7 @@ public class ReporteServiceImpl {
     // -------------------------------------------------------------------------
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
-    public List<VentaReporteDto> getReporteVentas(LocalDate desde, LocalDate hasta, String estado) {
+    public List<VentaReporteDto> getReporteVentas(LocalDate desde, LocalDate hasta, String estado, Integer barberoId) {
         String sql = "SELECT v.id, v.fecha, v.cliente_nombre, v.barbero_nombre, " +
                      "v.subtotal, v.descuento, v.total, v.metodo_pago, v.estado, " +
                      "COUNT(vi.id) AS items_count " +
@@ -148,6 +135,7 @@ public class ReporteServiceImpl {
                      "LEFT JOIN venta_items vi ON vi.venta_id = v.id " +
                      "WHERE DATE(v.fecha) BETWEEN :desde AND :hasta " +
                      (estado != null ? "AND v.estado = :estado " : "") +
+                     (barberoId != null ? "AND v.barbero_id = :barberoId " : "") +
                      "GROUP BY v.id, v.fecha, v.cliente_nombre, v.barbero_nombre, " +
                      "v.subtotal, v.descuento, v.total, v.metodo_pago, v.estado " +
                      "ORDER BY v.fecha DESC";
@@ -156,6 +144,7 @@ public class ReporteServiceImpl {
                 .setParameter("desde", desde)
                 .setParameter("hasta", hasta);
         if (estado != null) query.setParameter("estado", estado);
+        if (barberoId != null) query.setParameter("barberoId", barberoId);
 
         List<Object[]> rows = query.getResultList();
         List<VentaReporteDto> list = new ArrayList<>();
@@ -181,18 +170,22 @@ public class ReporteServiceImpl {
     // -------------------------------------------------------------------------
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
-    public List<VentasPorBarberoDto> getVentasPorBarbero(LocalDate desde, LocalDate hasta) {
-        List<Object[]> rows = em.createNativeQuery(
-                "SELECT b.id, CONCAT(b.nombre, ' ', b.apellido), b.porcentaje_comision, " +
+    public List<VentasPorBarberoDto> getVentasPorBarbero(LocalDate desde, LocalDate hasta, Integer barberoId) {
+        String sql = "SELECT b.id, CONCAT(b.nombre, ' ', b.apellido), b.porcentaje_comision, " +
                 "COUNT(v.id), COALESCE(SUM(v.total), 0), b.servicios_realizados " +
                 "FROM barberos b " +
                 "LEFT JOIN ventas v ON v.barbero_id = b.id AND v.estado = 'COMPLETADA' " +
                 "AND DATE(v.fecha) BETWEEN :desde AND :hasta " +
+                (barberoId != null ? "WHERE b.id = :barberoId " : "") +
                 "GROUP BY b.id, b.nombre, b.apellido, b.porcentaje_comision, b.servicios_realizados " +
-                "ORDER BY SUM(v.total) DESC")
+                "ORDER BY SUM(v.total) DESC";
+
+        var query = em.createNativeQuery(sql)
                 .setParameter("desde", desde)
-                .setParameter("hasta", hasta)
-                .getResultList();
+                .setParameter("hasta", hasta);
+        if (barberoId != null) query.setParameter("barberoId", barberoId);
+
+        List<Object[]> rows = query.getResultList();
 
         List<VentasPorBarberoDto> list = new ArrayList<>();
         for (Object[] r : rows) {
@@ -218,22 +211,26 @@ public class ReporteServiceImpl {
     // -------------------------------------------------------------------------
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
-    public List<TopServicioDto> getTopServicios(LocalDate desde, LocalDate hasta, int limit) {
-        List<Object[]> rows = em.createNativeQuery(
-                "SELECT s.id, s.nombre, s.categoria, COUNT(vi.id), " +
-                "COALESCE(SUM(vi.precio_unitario * vi.cantidad), 0), " +
-                "COALESCE(AVG(vi.precio_unitario), 0) " +
+    public List<TopServicioDto> getTopServicios(LocalDate desde, LocalDate hasta, int limit, Integer barberoId) {
+        String sql = "SELECT s.id, s.nombre, s.categoria, COUNT(vi.id), " +
+                "COALESCE(SUM(vi.precio * vi.cantidad), 0), " +
+                "COALESCE(AVG(vi.precio), 0) " +
                 "FROM servicios s " +
-                "JOIN venta_items vi ON vi.servicio_id = s.id AND vi.tipo = 'SERVICIO' " +
+                "JOIN venta_items vi ON vi.item_id = s.id AND vi.tipo = 'SERVICIO' " +
                 "JOIN ventas v ON v.id = vi.venta_id AND v.estado = 'COMPLETADA' " +
                 "AND DATE(v.fecha) BETWEEN :desde AND :hasta " +
+                (barberoId != null ? "AND v.barbero_id = :barberoId " : "") +
                 "GROUP BY s.id, s.nombre, s.categoria " +
                 "ORDER BY COUNT(vi.id) DESC " +
-                "LIMIT :lim")
+                "LIMIT :lim";
+
+        var query = em.createNativeQuery(sql)
                 .setParameter("desde", desde)
                 .setParameter("hasta", hasta)
-                .setParameter("lim", limit)
-                .getResultList();
+                .setParameter("lim", limit);
+        if (barberoId != null) query.setParameter("barberoId", barberoId);
+
+        List<Object[]> rows = query.getResultList();
 
         List<TopServicioDto> list = new ArrayList<>();
         for (Object[] r : rows) {
@@ -254,21 +251,25 @@ public class ReporteServiceImpl {
     // -------------------------------------------------------------------------
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
-    public List<TopProductoDto> getTopProductos(LocalDate desde, LocalDate hasta, int limit) {
-        List<Object[]> rows = em.createNativeQuery(
-                "SELECT p.id, p.nombre, p.categoria, COALESCE(SUM(vi.cantidad), 0), " +
-                "COALESCE(SUM(vi.precio_unitario * vi.cantidad), 0), p.stock_actual " +
+    public List<TopProductoDto> getTopProductos(LocalDate desde, LocalDate hasta, int limit, Integer barberoId) {
+        String sql = "SELECT p.id, p.nombre, p.categoria, COALESCE(SUM(vi.cantidad), 0), " +
+                "COALESCE(SUM(vi.precio * vi.cantidad), 0), p.stock_actual " +
                 "FROM productos p " +
-                "JOIN venta_items vi ON vi.producto_id = p.id AND vi.tipo = 'PRODUCTO' " +
+                "JOIN venta_items vi ON vi.item_id = p.id AND vi.tipo = 'PRODUCTO' " +
                 "JOIN ventas v ON v.id = vi.venta_id AND v.estado = 'COMPLETADA' " +
                 "AND DATE(v.fecha) BETWEEN :desde AND :hasta " +
+                (barberoId != null ? "AND v.barbero_id = :barberoId " : "") +
                 "GROUP BY p.id, p.nombre, p.categoria, p.stock_actual " +
                 "ORDER BY SUM(vi.cantidad) DESC " +
-                "LIMIT :lim")
+                "LIMIT :lim";
+
+        var query = em.createNativeQuery(sql)
                 .setParameter("desde", desde)
                 .setParameter("hasta", hasta)
-                .setParameter("lim", limit)
-                .getResultList();
+                .setParameter("lim", limit);
+        if (barberoId != null) query.setParameter("barberoId", barberoId);
+
+        List<Object[]> rows = query.getResultList();
 
         List<TopProductoDto> list = new ArrayList<>();
         for (Object[] r : rows) {
@@ -289,20 +290,22 @@ public class ReporteServiceImpl {
     // -------------------------------------------------------------------------
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
-    public List<CitaReporteDto> getReporteCitas(LocalDate desde, LocalDate hasta, String estado) {
+    public List<CitaReporteDto> getReporteCitas(LocalDate desde, LocalDate hasta, String estado, Integer barberoId) {
         String sql = "SELECT c.id, c.fecha, c.hora, c.cliente_nombre, " +
-                     "CONCAT(b.nombre, ' ', b.apellido), c.estado, c.total_estimado, " +
-                     "(SELECT COUNT(*) FROM cita_servicios cs WHERE cs.cita_id = c.id) " +
+                     "COALESCE(CONCAT(b.nombre, ' ', b.apellido), c.barbero_nombre), c.estado, c.total_estimado, " +
+                     "(SELECT COUNT(*) FROM citas_servicios cs WHERE cs.cita_id = c.id) " +
                      "FROM citas c " +
-                     "JOIN barberos b ON b.id = c.barbero_id " +
+                     "LEFT JOIN barberos b ON b.id = c.barbero_id " +
                      "WHERE c.fecha BETWEEN :desde AND :hasta " +
                      (estado != null ? "AND c.estado = :estado " : "") +
+                     (barberoId != null ? "AND c.barbero_id = :barberoId " : "") +
                      "ORDER BY c.fecha DESC, c.hora DESC";
 
         var query = em.createNativeQuery(sql)
                 .setParameter("desde", desde)
                 .setParameter("hasta", hasta);
         if (estado != null) query.setParameter("estado", estado);
+        if (barberoId != null) query.setParameter("barberoId", barberoId);
 
         List<Object[]> rows = query.getResultList();
         List<CitaReporteDto> list = new ArrayList<>();

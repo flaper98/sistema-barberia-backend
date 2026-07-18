@@ -58,6 +58,13 @@
       <scope>runtime</scope>
     </dependency>
 
+    <!-- ── Postgres (solo para el sync de citas públicas desde Vercel) ── -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
     <!-- ── JWT ───────────────────────────────────────────────── -->
     <dependency>
       <groupId>io.jsonwebtoken</groupId>

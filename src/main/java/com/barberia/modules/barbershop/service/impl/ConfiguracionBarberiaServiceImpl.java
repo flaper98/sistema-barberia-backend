@@ -1,6 +1,5 @@
 package com.barberia.modules.barbershop.service.impl;
 
-import com.barberia.exception.ResourceNotFoundException;
 import com.barberia.modules.barbershop.dto.ConfiguracionBarberiaRequest;
 import com.barberia.modules.barbershop.dto.ConfiguracionBarberiaResponse;
 import com.barberia.modules.barbershop.entity.ConfiguracionBarberia;
@@ -17,18 +16,24 @@ import org.springframework.transaction.annotation.Transactional;
 public class ConfiguracionBarberiaServiceImpl {
 
     private static final int SINGLETON_ID = 1;
+    private static final String MENSAJE_BIENVENIDA_POR_DEFECTO =
+            "¡Hola {nombre}! 👋 Bienvenido/a a {negocio}. Gracias por registrarte con nosotros, "
+                    + "cualquier consulta escribinos por acá. ¡Nos vemos pronto! ✂️";
+    private static final String MENSAJE_RECORDATORIO_POR_DEFECTO =
+            "¡Hola {nombre}! 👋 Te extrañamos en {negocio}. Tenemos promociones especiales esperándote, "
+                    + "¡vení a darte un corte! ✂️";
 
     private final ConfiguracionBarberiaRepository configRepo;
     private final ConfiguracionBarberiaMapper configMapper;
 
-    @Transactional(readOnly = true)
+    @Transactional
     public ConfiguracionBarberiaResponse obtener() {
-        return configMapper.toResponse(findOrThrow());
+        return configMapper.toResponse(findOrCrearPorDefecto());
     }
 
     @Transactional
     public ConfiguracionBarberiaResponse actualizar(ConfiguracionBarberiaRequest request) {
-        ConfiguracionBarberia config = findOrThrow();
+        ConfiguracionBarberia config = findOrCrearPorDefecto();
 
         config.setNombre(request.getNombre());
         config.setDireccion(request.getDireccion());
@@ -37,15 +42,22 @@ public class ConfiguracionBarberiaServiceImpl {
         config.setRuc(request.getRuc());
         config.setHorario(request.getHorario());
         config.setLogoUrl(request.getLogoUrl());
+        config.setMensajeBienvenidaWhatsapp(request.getMensajeBienvenidaWhatsapp());
+        config.setMensajeRecordatorioWhatsapp(request.getMensajeRecordatorioWhatsapp());
 
         config = configRepo.save(config);
         log.info("Configuración de barbería actualizada");
         return configMapper.toResponse(config);
     }
 
-    private ConfiguracionBarberia findOrThrow() {
-        return configRepo.findById(SINGLETON_ID)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Configuración de barbería no encontrada. Ejecuta el script de datos semilla."));
+    /** Antes esto lanzaba 404 si nadie había corrido un script de datos semilla; ahora se autocompleta una vez. */
+    private ConfiguracionBarberia findOrCrearPorDefecto() {
+        return configRepo.findById(SINGLETON_ID).orElseGet(() -> configRepo.save(
+                ConfiguracionBarberia.builder()
+                        .id(SINGLETON_ID)
+                        .nombre("Árabes Barber Studio")
+                        .mensajeBienvenidaWhatsapp(MENSAJE_BIENVENIDA_POR_DEFECTO)
+                        .mensajeRecordatorioWhatsapp(MENSAJE_RECORDATORIO_POR_DEFECTO)
+                        .build()));
     }
 }

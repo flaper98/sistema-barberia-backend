@@ -1,0 +1,10 @@
+target/
+secrets.local.yml
+*.iml
+.idea/
+cp.txt
+logs/
+
+# Build del frontend embebido para el jar unico -- se genera con "ng build"
+# + copia manual, no es codigo fuente del backend.
+src/main/resources/static/

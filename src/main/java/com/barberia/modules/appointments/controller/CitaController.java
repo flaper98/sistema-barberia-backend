@@ -67,7 +67,7 @@ public class CitaController {
 
     @Operation(summary = "Crear cita")
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN','CASHIER','RECEPTION')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<CitaResponse>> crear(
             @Valid @RequestBody CitaRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -76,7 +76,7 @@ public class CitaController {
 
     @Operation(summary = "Actualizar cita")
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN','CASHIER','RECEPTION')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<CitaResponse>> actualizar(
             @PathVariable Integer id,
             @Valid @RequestBody CitaRequest request) {

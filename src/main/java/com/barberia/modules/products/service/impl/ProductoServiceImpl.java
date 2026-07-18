@@ -1,6 +1,7 @@
 package com.barberia.modules.products.service.impl;
 
 import com.barberia.common.PageResponse;
+import com.barberia.common.search.TextSearchSpecification;
 import com.barberia.exception.ConflictException;
 import com.barberia.exception.ResourceNotFoundException;
 import com.barberia.modules.products.dto.ProductoRequest;
@@ -12,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -26,9 +28,9 @@ public class ProductoServiceImpl {
 
     @Transactional(readOnly = true)
     public PageResponse<ProductoResponse> listar(String search, Pageable pageable) {
-        Page<Producto> page = StringUtils.hasText(search)
-                ? productoRepository.searchActivos(search.trim(), pageable)
-                : productoRepository.findByEstadoTrue(pageable);
+        Specification<Producto> spec = Specification.<Producto>where((root, query, cb) -> cb.isTrue(root.get("estado")))
+                .and(TextSearchSpecification.matches(search, "nombre"));
+        Page<Producto> page = productoRepository.findAll(spec, pageable);
         return PageResponse.from(page.map(productoMapper::toResponse));
     }
 
@@ -56,7 +58,7 @@ public class ProductoServiceImpl {
                 .categoria(request.getCategoria())
                 .precioCompra(request.getPrecioCompra())
                 .precioVenta(request.getPrecioVenta())
-                .stockActual(0)
+                .stockActual(request.getStockActual())
                 .stockMinimo(request.getStockMinimo())
                 .descripcion(request.getDescripcion())
                 .codigoBarras(request.getCodigoBarras())
@@ -82,6 +84,7 @@ public class ProductoServiceImpl {
         producto.setCategoria(request.getCategoria());
         producto.setPrecioCompra(request.getPrecioCompra());
         producto.setPrecioVenta(request.getPrecioVenta());
+        producto.setStockActual(request.getStockActual());
         producto.setStockMinimo(request.getStockMinimo());
         producto.setDescripcion(request.getDescripcion());
         producto.setCodigoBarras(request.getCodigoBarras());

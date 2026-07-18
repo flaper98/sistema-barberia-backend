@@ -40,6 +40,12 @@ public class ConfiguracionBarberia {
     @Column(name = "logo_url", length = 500)
     private String logoUrl;
 
+    @Column(name = "mensaje_bienvenida_whatsapp", length = 500)
+    private String mensajeBienvenidaWhatsapp;
+
+    @Column(name = "mensaje_recordatorio_whatsapp", length = 500)
+    private String mensajeRecordatorioWhatsapp;
+
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;

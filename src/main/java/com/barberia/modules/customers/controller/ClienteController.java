@@ -15,7 +15,11 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/customers")
@@ -26,16 +30,47 @@ public class ClienteController {
 
     private final ClienteService clienteService;
 
-    @Operation(summary = "Listar clientes activos con búsqueda")
+    // Whitelist de columnas ordenables: nunca se pasa el "sortBy" del cliente
+    // directo a Sort.by (evita exponer nombres de propiedades internas o
+    // tirar un error feo si mandan un valor invalido).
+    private static final Map<String, String[]> SORT_FIELDS = Map.of(
+            "id", new String[]{"id"},
+            "nombre", new String[]{"nombre", "apellido"},
+            "apellido", new String[]{"apellido", "nombre"},
+            "telefono", new String[]{"telefono"},
+            "sellos", new String[]{"cantidadSellos"},
+            "recompensas", new String[]{"recompensasDisponibles"},
+            "ultimaVisita", new String[]{"ultimaVisita"}
+    );
+
+    @Operation(summary = "Listar clientes activos con búsqueda y filtros",
+               description = "Todos los filtros son opcionales y se aplican del lado del servidor " +
+                       "(no hace falta traer todos los clientes al frontend para filtrar ahi).")
     @GetMapping
     @PreAuthorize("hasAnyRole('ADMIN','CASHIER','RECEPTION','BARBER')")
     public ResponseEntity<ApiResponse<PageResponse<ClienteResponse>>> listar(
             @RequestParam(required = false) String search,
+            @RequestParam(required = false) Integer sellosMin,
+            @RequestParam(required = false) String recompensa,
+            @RequestParam(required = false) String inactividad,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(defaultValue = "asc") String sortDir,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        PageRequest pageable = PageRequest.of(page, Math.min(size, 100),
-                Sort.by("apellido", "nombre"));
-        return ResponseEntity.ok(ApiResponse.ok(clienteService.listarClientes(search, pageable)));
+        String[] campos = sortBy != null ? SORT_FIELDS.getOrDefault(sortBy, new String[]{"id"}) : new String[]{"id"};
+        Sort sort = "desc".equalsIgnoreCase(sortDir) ? Sort.by(campos).descending() : Sort.by(campos).ascending();
+        PageRequest pageable = PageRequest.of(page, Math.min(size, 200), sort);
+
+        Boolean conRecompensa = "con".equals(recompensa) ? Boolean.TRUE
+                : "sin".equals(recompensa) ? Boolean.FALSE : null;
+        Boolean nuncaVisito = "nunca".equals(inactividad) ? Boolean.TRUE : null;
+        LocalDate inactivoDesde = null;
+        if (StringUtils.hasText(inactividad) && !"nunca".equals(inactividad)) {
+            inactivoDesde = LocalDate.now().minusDays(Long.parseLong(inactividad));
+        }
+
+        return ResponseEntity.ok(ApiResponse.ok(clienteService.buscarConFiltros(
+                search, sellosMin, conRecompensa, nuncaVisito, inactivoDesde, pageable)));
     }
 
     @Operation(summary = "Obtener cliente por ID")
@@ -47,7 +82,7 @@ public class ClienteController {
 
     @Operation(summary = "Crear cliente")
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN','CASHIER','RECEPTION')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<ClienteResponse>> crear(
             @Valid @RequestBody ClienteRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -56,7 +91,7 @@ public class ClienteController {
 
     @Operation(summary = "Actualizar cliente")
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN','CASHIER','RECEPTION')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<ClienteResponse>> actualizar(
             @PathVariable Integer id,
             @Valid @RequestBody ClienteRequest request) {
@@ -66,7 +101,7 @@ public class ClienteController {
 
     @Operation(summary = "Deshabilitar cliente")
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<Void>> eliminar(@PathVariable Integer id) {
         clienteService.eliminar(id);
         return ResponseEntity.ok(ApiResponse.ok("Cliente deshabilitado correctamente"));
@@ -74,7 +109,7 @@ public class ClienteController {
 
     @Operation(summary = "Listar clientes con recompensas disponibles")
     @GetMapping("/with-rewards")
-    @PreAuthorize("hasAnyRole('ADMIN','CASHIER','RECEPTION')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<PageResponse<ClienteResponse>>> conRecompensas(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {

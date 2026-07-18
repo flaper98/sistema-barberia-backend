@@ -20,6 +20,7 @@ public enum AuditAction {
 
     // Ventas
     SALE_CREATE,
+    SALE_UPDATE,
     SALE_CANCEL,
 
     // Inventario

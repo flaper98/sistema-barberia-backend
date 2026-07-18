@@ -51,6 +51,9 @@ public class Cliente {
     @Builder.Default
     private Integer recompensasDisponibles = 0;
 
+    @Column(name = "descripcion_recompensa", length = 255)
+    private String descripcionRecompensa;
+
     @Column(name = "ultima_visita")
     private LocalDate ultimaVisita;
 

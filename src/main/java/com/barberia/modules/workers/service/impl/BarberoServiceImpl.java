@@ -1,9 +1,11 @@
 package com.barberia.modules.workers.service.impl;
 
 import com.barberia.common.PageResponse;
+import com.barberia.common.search.TextSearchSpecification;
 import com.barberia.exception.ResourceNotFoundException;
 import com.barberia.modules.workers.dto.BarberoRequest;
 import com.barberia.modules.workers.dto.BarberoResponse;
+import com.barberia.modules.workers.dto.BarberoSelectorResponse;
 import com.barberia.modules.workers.dto.BarberoSummaryResponse;
 import com.barberia.modules.workers.entity.Barbero;
 import com.barberia.modules.workers.mapper.BarberoMapper;
@@ -14,9 +16,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -36,10 +38,24 @@ public class BarberoServiceImpl implements BarberoService {
     @Override
     @Transactional(readOnly = true)
     public PageResponse<BarberoResponse> listarBarberos(String search, Pageable pageable) {
-        Page<Barbero> page = StringUtils.hasText(search)
-                ? barberoRepository.searchActivos(search.trim(), pageable)
-                : barberoRepository.findByEstadoTrue(pageable);
+        Specification<Barbero> spec = Specification.<Barbero>where((root, query, cb) -> cb.isTrue(root.get("estado")))
+                .and(TextSearchSpecification.matches(search, "nombre", "apellido"));
+        Page<Barbero> page = barberoRepository.findAll(spec, pageable);
         return PageResponse.from(page.map(barberoMapper::toResponse));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<BarberoSelectorResponse> listarParaSelector() {
+        return barberoRepository.findByEstadoTrue().stream()
+                .map(b -> BarberoSelectorResponse.builder()
+                        .id(b.getId())
+                        .nombre(b.getNombre())
+                        .apellido(b.getApellido())
+                        .especialidad(b.getEspecialidad())
+                        .avatar(b.getAvatar())
+                        .build())
+                .toList();
     }
 
     @Override
@@ -91,6 +107,14 @@ public class BarberoServiceImpl implements BarberoService {
         findOrThrow(id);
         barberoRepository.updateEstado(id, estado);
         log.info("Estado de barbero ID={} cambiado a {}", id, estado);
+    }
+
+    @Override
+    @Transactional
+    public void eliminar(Integer id) {
+        findOrThrow(id);
+        barberoRepository.updateEstado(id, false);
+        log.info("Barbero deshabilitado (soft delete) ID={}", id);
     }
 
     @Override

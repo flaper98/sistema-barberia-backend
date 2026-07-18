@@ -2,8 +2,11 @@ spring:
   profiles:
     active: ${APP_PROFILE:dev}
 
+  config:
+    import: "optional:file:./secrets.local.yml"
+
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/barberia_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&characterEncoding=UTF-8
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/barberia_db?useSSL=false&serverTimezone=America/Lima&allowPublicKeyRetrieval=true&characterEncoding=UTF-8
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     hikari:
@@ -47,6 +50,9 @@ app:
   cors:
     allowed-origins: ${CORS_ORIGINS:http://localhost:4200}
   name: BarberPro Backend
+  sync:
+    vercel-database-url: ${VERCEL_CITAS_DATABASE_URL:}
+    fixed-delay-ms: ${VERCEL_CITAS_SYNC_DELAY_MS:120000}
 
 springdoc:
   api-docs:

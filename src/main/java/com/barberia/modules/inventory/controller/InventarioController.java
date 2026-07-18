@@ -28,7 +28,7 @@ public class InventarioController {
 
     @Operation(summary = "Listar movimientos de stock. Filtrar por productoId si se desea.")
     @GetMapping("/movements")
-    @PreAuthorize("hasAnyRole('ADMIN','CASHIER')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<PageResponse<MovimientoResponse>>> listar(
             @RequestParam(required = false) Integer productoId,
             @RequestParam(defaultValue = "0") int page,
@@ -40,7 +40,7 @@ public class InventarioController {
 
     @Operation(summary = "Registrar movimiento manual de stock (entrada, salida o ajuste)")
     @PostMapping("/movements")
-    @PreAuthorize("hasAnyRole('ADMIN','CASHIER')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<MovimientoResponse>> registrar(
             @Valid @RequestBody MovimientoRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)

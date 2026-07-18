@@ -22,6 +22,8 @@ public class ServicioRequest {
     @DecimalMin(value = "0.00", message = "El precio no puede ser negativo")
     private BigDecimal precio;
 
+    private Boolean precioVariable;
+
     @NotNull(message = "La duración es obligatoria")
     @Min(value = 1, message = "La duración debe ser de al menos 1 minuto")
     private Integer duracionMinutos;

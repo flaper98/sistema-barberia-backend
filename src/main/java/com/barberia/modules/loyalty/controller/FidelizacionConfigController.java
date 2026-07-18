@@ -38,9 +38,9 @@ public class FidelizacionConfigController {
         return ResponseEntity.ok(ApiResponse.ok(toResponse(config)));
     }
 
-    @Operation(summary = "Actualizar configuración del sistema de fidelización (solo ADMIN)")
+    @Operation(summary = "Actualizar configuración del sistema de fidelización")
     @PutMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     @Transactional
     public ResponseEntity<ApiResponse<FidelizacionConfigResponse>> actualizar(
             @Valid @RequestBody FidelizacionConfigRequest request) {

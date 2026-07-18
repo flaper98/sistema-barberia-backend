@@ -29,9 +29,9 @@ public class ConfiguracionBarberiaController {
         return ResponseEntity.ok(ApiResponse.ok(service.obtener()));
     }
 
-    @Operation(summary = "Actualizar configuración de la barbería", description = "Solo ADMIN")
+    @Operation(summary = "Actualizar configuración de la barbería")
     @PutMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<ConfiguracionBarberiaResponse>> actualizar(
             @Valid @RequestBody ConfiguracionBarberiaRequest request) {
         return ResponseEntity.ok(ApiResponse.ok("Configuración actualizada", service.actualizar(request)));

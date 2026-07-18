@@ -14,6 +14,7 @@ import java.util.List;
 @Setter
 public class VentaRequest {
 
+    @NotNull(message = "El cliente es obligatorio")
     private Integer clienteId;
 
     @NotNull(message = "El ID del barbero es obligatorio")

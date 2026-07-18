@@ -34,18 +34,19 @@ public class FinanzaController {
 
     @Operation(summary = "Resumen financiero del período", description = "Calcula ingresos, egresos y utilidad")
     @GetMapping("/summary")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<ResumenFinancieroResponse>> resumen(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta) {
-        if (desde == null) desde = LocalDate.now().withDayOfMonth(1);
-        if (hasta == null) hasta = LocalDate.now();
+        LocalDate hoy = LocalDate.now();
+        if (desde == null) desde = hoy.withDayOfMonth(1);
+        if (hasta == null) hasta = hoy.withDayOfMonth(hoy.lengthOfMonth());
         return ResponseEntity.ok(ApiResponse.ok(finanzaBiz.obtenerResumen(desde, hasta)));
     }
 
     @Operation(summary = "Listar movimientos financieros con filtros")
     @GetMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<PageResponse<FinanzaResponse>>> listar(
             @RequestParam(required = false) TipoFinanza tipo,
             @RequestParam(required = false) CategoriaFinanza categoria,
@@ -58,9 +59,9 @@ public class FinanzaController {
     }
 
     @Operation(summary = "Registrar ingreso o egreso manual",
-               description = "Los ingresos de ventas son registrados automáticamente por trigger de BD")
+               description = "Los ingresos de ventas se registran automáticamente al completar la venta; usar este endpoint para egresos y otros ingresos manuales")
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<FinanzaResponse>> registrar(
             @Valid @RequestBody FinanzaRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -69,7 +70,7 @@ public class FinanzaController {
 
     @Operation(summary = "Listar solo ingresos")
     @GetMapping("/incomes")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<PageResponse<FinanzaResponse>>> ingresos(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
@@ -82,7 +83,7 @@ public class FinanzaController {
 
     @Operation(summary = "Listar solo egresos")
     @GetMapping("/expenses")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<PageResponse<FinanzaResponse>>> egresos(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,

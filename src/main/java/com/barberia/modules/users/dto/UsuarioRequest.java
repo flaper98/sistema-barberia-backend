@@ -37,4 +37,7 @@ public class UsuarioRequest {
 
     @Size(max = 500, message = "La URL del avatar no puede superar 500 caracteres")
     private String avatar;
+
+    @Schema(description = "ID del barbero al que representa esta cuenta (solo aplica a rol BARBER)", example = "3")
+    private Integer barberoId;
 }

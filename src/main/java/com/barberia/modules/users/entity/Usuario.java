@@ -43,6 +43,9 @@ public class Usuario {
     @Column(name = "avatar", length = 500)
     private String avatar;
 
+    @Column(name = "barbero_id", unique = true)
+    private Integer barberoId;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

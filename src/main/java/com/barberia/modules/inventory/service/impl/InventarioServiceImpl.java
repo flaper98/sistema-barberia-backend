@@ -71,6 +71,9 @@ public class InventarioServiceImpl {
 
         movimiento = movimientoRepository.save(movimiento);
 
+        producto.setStockActual(stockNuevo);
+        productoRepository.save(producto);
+
         String actor = userDetails != null ? userDetails.getUsername() : "SISTEMA";
         auditPublisher.publish(AuditAction.STOCK_MOVEMENT, actor,
                 "PRODUCTO", producto.getId().toString(),

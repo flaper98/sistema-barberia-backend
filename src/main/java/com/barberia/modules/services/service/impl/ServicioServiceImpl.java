@@ -1,6 +1,7 @@
 package com.barberia.modules.services.service.impl;
 
 import com.barberia.common.PageResponse;
+import com.barberia.common.search.TextSearchSpecification;
 import com.barberia.exception.ResourceNotFoundException;
 import com.barberia.modules.services.dto.ServicioRequest;
 import com.barberia.modules.services.dto.ServicioResponse;
@@ -11,9 +12,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 @Slf4j
 @Service
@@ -25,9 +26,9 @@ public class ServicioServiceImpl {
 
     @Transactional(readOnly = true)
     public PageResponse<ServicioResponse> listar(String search, Pageable pageable) {
-        Page<Servicio> page = StringUtils.hasText(search)
-                ? servicioRepository.searchActivos(search.trim(), pageable)
-                : servicioRepository.findByEstadoTrue(pageable);
+        Specification<Servicio> spec = Specification.<Servicio>where((root, query, cb) -> cb.isTrue(root.get("estado")))
+                .and(TextSearchSpecification.matches(search, "nombre"));
+        Page<Servicio> page = servicioRepository.findAll(spec, pageable);
         return PageResponse.from(page.map(servicioMapper::toResponse));
     }
 
@@ -42,6 +43,7 @@ public class ServicioServiceImpl {
                 .nombre(request.getNombre())
                 .categoria(request.getCategoria())
                 .precio(request.getPrecio())
+                .precioVariable(Boolean.TRUE.equals(request.getPrecioVariable()))
                 .duracionMinutos(request.getDuracionMinutos())
                 .descripcion(request.getDescripcion())
                 .estado(true)
@@ -59,6 +61,7 @@ public class ServicioServiceImpl {
         servicio.setNombre(request.getNombre());
         servicio.setCategoria(request.getCategoria());
         servicio.setPrecio(request.getPrecio());
+        servicio.setPrecioVariable(Boolean.TRUE.equals(request.getPrecioVariable()));
         servicio.setDuracionMinutos(request.getDuracionMinutos());
         servicio.setDescripcion(request.getDescripcion());
 

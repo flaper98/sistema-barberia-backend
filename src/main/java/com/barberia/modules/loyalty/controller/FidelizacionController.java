@@ -39,9 +39,9 @@ public class FidelizacionController {
     }
 
     @Operation(summary = "Agregar sello a un cliente",
-               description = "Usa el stored procedure sp_agregar_sello. Verifica automáticamente si corresponde recompensa.")
+               description = "Suma un sello y verifica automáticamente si corresponde una nueva recompensa.")
     @PostMapping("/customers/{customerId}/add-stamp")
-    @PreAuthorize("hasAnyRole('ADMIN','CASHIER','BARBER')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<SelloResponse>> agregarSello(
             @PathVariable Integer customerId,
             @Valid @RequestBody AgregarSelloRequest request) {
@@ -49,14 +49,26 @@ public class FidelizacionController {
     }
 
     @Operation(summary = "Canjear recompensa de un cliente",
-               description = "Usa el stored procedure sp_canjear_recompensa. El cliente debe tener recompensas disponibles.")
+               description = "El cliente debe tener recompensas disponibles.")
     @PostMapping("/customers/{customerId}/redeem")
-    @PreAuthorize("hasAnyRole('ADMIN','CASHIER','RECEPTION')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<SelloResponse>> canjear(
             @PathVariable Integer customerId,
             @RequestBody Map<String, String> body) {
         String motivo = body.getOrDefault("motivo", "Canje de recompensa");
         return ResponseEntity.ok(ApiResponse.ok(fidelizacionBiz.canjearRecompensa(customerId, motivo)));
+    }
+
+    @Operation(summary = "Editar la descripción de la recompensa pendiente de un cliente",
+               description = "Permite personalizar qué premio le corresponde a este cliente en particular " +
+                       "(ej. '50% descuento' en vez del premio por defecto). Enviar vacío para volver al default.")
+    @PatchMapping("/customers/{customerId}/reward-description")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<FidelizacionCuentaResponse>> actualizarDescripcionRecompensa(
+            @PathVariable Integer customerId,
+            @RequestBody Map<String, String> body) {
+        return ResponseEntity.ok(ApiResponse.ok("Recompensa actualizada",
+                fidelizacionBiz.actualizarDescripcionRecompensa(customerId, body.get("descripcion"))));
     }
 
     @Operation(summary = "Ver catálogo de recompensas activas")
@@ -68,7 +80,7 @@ public class FidelizacionController {
 
     @Operation(summary = "Clientes con recompensas pendientes de canjear")
     @GetMapping("/customers-with-rewards")
-    @PreAuthorize("hasAnyRole('ADMIN','CASHIER','RECEPTION')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<PageResponse<FidelizacionCuentaResponse>>> clientesConRecompensas(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -77,9 +89,19 @@ public class FidelizacionController {
         return ResponseEntity.ok(ApiResponse.ok(fidelizacionBiz.listarClientesConRecompensas(pageable)));
     }
 
+    @Operation(summary = "Listar todos los clientes con su progreso de fidelización")
+    @GetMapping("/customers")
+    @PreAuthorize("hasAnyRole('ADMIN','CASHIER','RECEPTION','BARBER')")
+    public ResponseEntity<ApiResponse<PageResponse<FidelizacionCuentaResponse>>> todasLasCuentas(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        PageRequest pageable = PageRequest.of(page, size, Sort.by("nombre").ascending());
+        return ResponseEntity.ok(ApiResponse.ok(fidelizacionBiz.listarTodasLasCuentas(pageable)));
+    }
+
     @Operation(summary = "Historial de movimientos de fidelización de un cliente")
     @GetMapping("/customers/{customerId}/history")
-    @PreAuthorize("hasAnyRole('ADMIN','CASHIER','RECEPTION')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<PageResponse<?>>> historial(
             @PathVariable Integer customerId,
             @RequestParam(defaultValue = "0") int page,

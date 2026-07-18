@@ -1,6 +1,7 @@
 package com.barberia.modules.users.service;
 
 import com.barberia.common.PageResponse;
+import com.barberia.modules.users.dto.CambiarPasswordRequest;
 import com.barberia.modules.users.dto.UsuarioRequest;
 import com.barberia.modules.users.dto.UsuarioResponse;
 import org.springframework.data.domain.Pageable;
@@ -18,4 +19,6 @@ public interface UsuarioService {
     void cambiarEstado(Integer id, Boolean estado);
 
     void eliminar(Integer id);
+
+    void cambiarMiPassword(Integer usuarioId, CambiarPasswordRequest request);
 }

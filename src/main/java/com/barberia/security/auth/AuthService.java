@@ -133,6 +133,7 @@ public class AuthService {
                 .email(usuario.getEmail())
                 .rol(usuario.getRol().name())
                 .avatar(usuario.getAvatar())
+                .barberoId(usuario.getBarberoId())
                 .estado(usuario.getEstado())
                 .ultimoAcceso(usuario.getUltimoAcceso())
                 .createdAt(usuario.getCreatedAt())

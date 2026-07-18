@@ -14,6 +14,7 @@ public class ServicioResponse {
     private final String nombre;
     private final String categoria;
     private final BigDecimal precio;
+    private final Boolean precioVariable;
     private final Integer duracionMinutos;
     private final String descripcion;
     private final Boolean estado;

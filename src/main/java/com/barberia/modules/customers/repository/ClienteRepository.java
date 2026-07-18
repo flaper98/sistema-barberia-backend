@@ -6,13 +6,15 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface ClienteRepository extends JpaRepository<Cliente, Integer> {
+public interface ClienteRepository extends JpaRepository<Cliente, Integer>, JpaSpecificationExecutor<Cliente> {
 
     Optional<Cliente> findByCorreo(String correo);
 
@@ -24,14 +26,9 @@ public interface ClienteRepository extends JpaRepository<Cliente, Integer> {
 
     boolean existsByTelefono(String telefono);
 
-    @Query("SELECT c FROM Cliente c WHERE c.estado = true AND " +
-           "(:search IS NULL OR LOWER(c.nombre) LIKE LOWER(CONCAT('%', :search, '%')) " +
-           "OR LOWER(c.apellido) LIKE LOWER(CONCAT('%', :search, '%')) " +
-           "OR c.telefono LIKE CONCAT('%', :search, '%') " +
-           "OR LOWER(c.correo) LIKE LOWER(CONCAT('%', :search, '%')))")
-    Page<Cliente> searchActivos(@Param("search") String search, Pageable pageable);
-
     Page<Cliente> findByEstadoTrue(Pageable pageable);
+
+    List<Cliente> findByUltimaVisitaIsNull();
 
     @Query("SELECT c FROM Cliente c WHERE c.recompensasDisponibles > 0 AND c.estado = true")
     Page<Cliente> findClientesConRecompensas(Pageable pageable);

@@ -106,9 +106,11 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleAccessDenied(
             AccessDeniedException ex, HttpServletRequest req) {
         log.warn("Acceso denegado | path={}", req.getRequestURI());
+        String mensaje = ex.getMessage() != null
+                ? ex.getMessage()
+                : "No tiene permisos para realizar esta acción";
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(buildError(HttpStatus.FORBIDDEN, "Prohibido",
-                        "No tiene permisos para realizar esta acción", req));
+                .body(buildError(HttpStatus.FORBIDDEN, "Prohibido", mensaje, req));
     }
 
     @ExceptionHandler(Exception.class)

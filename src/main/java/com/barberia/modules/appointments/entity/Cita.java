@@ -31,7 +31,7 @@ public class Cita {
     @Column(name = "cliente_nombre", nullable = false, length = 200)
     private String clienteNombre;
 
-    @Column(name = "barbero_id", nullable = false)
+    @Column(name = "barbero_id")
     private Integer barberoId;
 
     @Column(name = "barbero_nombre", nullable = false, length = 200)

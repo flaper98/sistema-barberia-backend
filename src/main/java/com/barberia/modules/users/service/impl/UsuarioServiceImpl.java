@@ -1,11 +1,13 @@
 package com.barberia.modules.users.service.impl;
 
 import com.barberia.common.PageResponse;
+import com.barberia.common.search.TextSearchSpecification;
 import com.barberia.exception.BusinessException;
 import com.barberia.exception.ConflictException;
 import com.barberia.exception.ResourceNotFoundException;
 import com.barberia.modules.audit.AuditAction;
 import com.barberia.modules.audit.AuditPublisher;
+import com.barberia.modules.users.dto.CambiarPasswordRequest;
 import com.barberia.modules.users.dto.UsuarioRequest;
 import com.barberia.modules.users.dto.UsuarioResponse;
 import com.barberia.modules.users.entity.Rol;
@@ -13,10 +15,12 @@ import com.barberia.modules.users.entity.Usuario;
 import com.barberia.modules.users.mapper.UsuarioMapper;
 import com.barberia.modules.users.repository.UsuarioRepository;
 import com.barberia.modules.users.service.UsuarioService;
+import com.barberia.modules.workers.repository.BarberoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,13 +35,13 @@ public class UsuarioServiceImpl implements UsuarioService {
     private final UsuarioMapper usuarioMapper;
     private final PasswordEncoder passwordEncoder;
     private final AuditPublisher auditPublisher;
+    private final BarberoRepository barberoRepository;
 
     @Override
     @Transactional(readOnly = true)
     public PageResponse<UsuarioResponse> listarUsuarios(String search, Pageable pageable) {
-        Page<Usuario> page = StringUtils.hasText(search)
-                ? usuarioRepository.searchUsuarios(search.trim(), pageable)
-                : usuarioRepository.findAll(pageable);
+        Specification<Usuario> spec = TextSearchSpecification.matches(search, "nombre", "apellido", "email");
+        Page<Usuario> page = usuarioRepository.findAll(spec, pageable);
         return PageResponse.from(page.map(usuarioMapper::toResponse));
     }
 
@@ -56,6 +60,9 @@ public class UsuarioServiceImpl implements UsuarioService {
         if (!StringUtils.hasText(request.getPassword())) {
             throw new BusinessException("La contraseña es obligatoria al crear un usuario");
         }
+        if (request.getBarberoId() != null) {
+            validarBarbero(request.getBarberoId(), null);
+        }
 
         Usuario usuario = Usuario.builder()
                 .nombre(request.getNombre())
@@ -65,6 +72,7 @@ public class UsuarioServiceImpl implements UsuarioService {
                 .rol(request.getRol())
                 .estado(true)
                 .avatar(request.getAvatar())
+                .barberoId(request.getBarberoId())
                 .build();
 
         usuario = usuarioRepository.save(usuario);
@@ -83,6 +91,9 @@ public class UsuarioServiceImpl implements UsuarioService {
         if (usuarioRepository.existsByEmailAndIdNot(request.getEmail(), id)) {
             throw new ConflictException("Ya existe otro usuario con el email: " + request.getEmail());
         }
+        if (request.getBarberoId() != null) {
+            validarBarbero(request.getBarberoId(), id);
+        }
 
         Rol rolAnterior = usuario.getRol();
         usuario.setNombre(request.getNombre());
@@ -90,6 +101,7 @@ public class UsuarioServiceImpl implements UsuarioService {
         usuario.setEmail(request.getEmail());
         usuario.setRol(request.getRol());
         usuario.setAvatar(request.getAvatar());
+        usuario.setBarberoId(request.getBarberoId());
 
         if (StringUtils.hasText(request.getPassword())) {
             usuario.setPasswordHash(passwordEncoder.encode(request.getPassword()));
@@ -125,8 +137,34 @@ public class UsuarioServiceImpl implements UsuarioService {
         log.info("Usuario deshabilitado ID={}", id);
     }
 
+    @Override
+    @Transactional
+    public void cambiarMiPassword(Integer usuarioId, CambiarPasswordRequest request) {
+        Usuario usuario = findOrThrow(usuarioId);
+        if (!passwordEncoder.matches(request.getCurrentPassword(), usuario.getPasswordHash())) {
+            throw new BusinessException("La contraseña actual no es correcta");
+        }
+        usuario.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        usuarioRepository.save(usuario);
+        auditPublisher.publish(AuditAction.USER_UPDATE, usuario.getEmail(),
+                "USUARIO", usuario.getId().toString(), "Cambio de contraseña propia");
+        log.info("Usuario ID={} cambió su propia contraseña", usuarioId);
+    }
+
     private Usuario findOrThrow(Integer id) {
         return usuarioRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario", id));
+    }
+
+    private void validarBarbero(Integer barberoId, Integer usuarioIdActual) {
+        if (!barberoRepository.existsById(barberoId)) {
+            throw new ResourceNotFoundException("Barbero", barberoId);
+        }
+        boolean yaVinculado = usuarioIdActual == null
+                ? usuarioRepository.existsByBarberoId(barberoId)
+                : usuarioRepository.existsByBarberoIdAndIdNot(barberoId, usuarioIdActual);
+        if (yaVinculado) {
+            throw new ConflictException("Ese barbero ya está vinculado a otro usuario");
+        }
     }
 }

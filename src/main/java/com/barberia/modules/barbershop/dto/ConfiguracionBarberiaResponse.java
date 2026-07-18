@@ -16,5 +16,7 @@ public class ConfiguracionBarberiaResponse {
     private final String ruc;
     private final String horario;
     private final String logoUrl;
+    private final String mensajeBienvenidaWhatsapp;
+    private final String mensajeRecordatorioWhatsapp;
     private final LocalDateTime updatedAt;
 }

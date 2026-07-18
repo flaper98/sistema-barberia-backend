@@ -24,10 +24,9 @@ public class Producto {
     @Column(name = "nombre", nullable = false, length = 150)
     private String nombre;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "categoria", nullable = false, length = 20)
+    @Column(name = "categoria", nullable = false, length = 80)
     @Builder.Default
-    private CategoriaProducto categoria = CategoriaProducto.OTRO;
+    private String categoria = "Otro";
 
     @Column(name = "precio_compra", nullable = false, precision = 10, scale = 2)
     @Builder.Default
