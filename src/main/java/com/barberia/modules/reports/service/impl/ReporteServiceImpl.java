@@ -28,7 +28,15 @@ public class ReporteServiceImpl {
     public DashboardResponse getDashboard(Integer barberoScopeId) {
         LocalDate hoy = LocalDate.now();
 
-        BigDecimal ingresosHoy = calcularIngresosVentasHoy(barberoScopeId);
+        // Un barbero no puede ver el total vendido -- solo lo que le
+        // corresponde de comision (se calcula aparte, ver comisionHoy).
+        // ingresosHoy queda en null para un barbero, igual criterio que
+        // barberoTopNombre/barberoTopMonto mas abajo -- no alcanza con que
+        // el frontend no lo muestre, tampoco tiene que viajar en la
+        // respuesta (alguien podria verlo igual por la pestaña Red del
+        // navegador).
+        BigDecimal ingresosHoy = barberoScopeId == null ? calcularIngresosVentasHoy() : null;
+        BigDecimal comisionHoy = barberoScopeId != null ? calcularComisionHoy(barberoScopeId) : null;
         Long ventasHoy = contarVentasHoy(barberoScopeId);
         Long citasHoy = contarCitasHoy();
         Long clientesAtendidos = contarClientesAtendidosHoy(barberoScopeId);
@@ -47,6 +55,7 @@ public class ReporteServiceImpl {
         return DashboardResponse.builder()
                 .ventasHoy(ventasHoy)
                 .ingresosHoy(ingresosHoy)
+                .comisionHoy(comisionHoy)
                 .citasHoy(citasHoy)
                 .clientesAtendidos(clientesAtendidos)
                 .productosStockBajo(stockBajo)
@@ -56,15 +65,36 @@ public class ReporteServiceImpl {
                 .build();
     }
 
-    private BigDecimal calcularIngresosVentasHoy(Integer barberoId) {
-        String sql = "SELECT COALESCE(SUM(total), 0) FROM ventas " +
-                "WHERE DATE(fecha) = CURDATE() AND estado = 'COMPLETADA'" +
-                (barberoId != null ? " AND barbero_id = :barberoId" : "");
-        var query = em.createNativeQuery(sql);
-        if (barberoId != null) query.setParameter("barberoId", barberoId);
-        List<?> result = query.getResultList();
+    // Solo se llama sin scope de barbero (ver getDashboard) -- un barbero no
+    // puede ver el total vendido, ni siquiera el suyo propio.
+    private BigDecimal calcularIngresosVentasHoy() {
+        List<?> result = em.createNativeQuery(
+                "SELECT COALESCE(SUM(total), 0) FROM ventas WHERE DATE(fecha) = CURDATE() AND estado = 'COMPLETADA'")
+                .getResultList();
         if (!result.isEmpty() && result.get(0) != null) {
             return (BigDecimal) result.get(0);
+        }
+        return BigDecimal.ZERO;
+    }
+
+    // Igual criterio que ComisionServiceImpl/getVentasPorBarbero: la comision
+    // se pesa por la tasa de CADA item vendido (join a servicios/paquetes/
+    // productos segun el tipo de cada linea), no un % fijo por barbero.
+    private BigDecimal calcularComisionHoy(Integer barberoId) {
+        String sql = "SELECT COALESCE(SUM(CASE WHEN vi.tipo = 'SERVICIO' THEN vi.subtotal * COALESCE(s.porcentaje_comision, 0) / 100 " +
+                "                   WHEN vi.tipo = 'PAQUETE'  THEN vi.subtotal * COALESCE(pk.porcentaje_comision, 0) / 100 " +
+                "                   WHEN vi.tipo = 'PRODUCTO' THEN vi.subtotal * COALESCE(p.porcentaje_comision, 0) / 100 " +
+                "                   ELSE 0 END), 0) " +
+                "FROM ventas v " +
+                "JOIN venta_items vi ON vi.venta_id = v.id " +
+                "LEFT JOIN servicios s ON s.id = vi.item_id AND vi.tipo = 'SERVICIO' " +
+                "LEFT JOIN paquetes pk ON pk.id = vi.item_id AND vi.tipo = 'PAQUETE' " +
+                "LEFT JOIN productos p ON p.id = vi.item_id AND vi.tipo = 'PRODUCTO' " +
+                "WHERE v.estado = 'COMPLETADA' AND DATE(v.fecha) = CURDATE() AND v.barbero_id = :barberoId";
+        var query = em.createNativeQuery(sql).setParameter("barberoId", barberoId);
+        List<?> result = query.getResultList();
+        if (!result.isEmpty() && result.get(0) != null) {
+            return ((BigDecimal) result.get(0)).setScale(2, RoundingMode.HALF_UP);
         }
         return BigDecimal.ZERO;
     }
