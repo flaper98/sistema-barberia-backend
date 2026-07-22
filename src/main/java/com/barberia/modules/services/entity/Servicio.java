@@ -46,6 +46,20 @@ public class Servicio {
     @Builder.Default
     private Boolean estado = true;
 
+    // % que se le paga de comision al barbero por cada venta de este
+    // servicio -- lo define el administrador desde Comisiones -> Tasas de
+    // comision (no todos los servicios pagan lo mismo).
+    @Column(name = "porcentaje_comision", nullable = false, precision = 5, scale = 2)
+    @Builder.Default
+    private BigDecimal porcentajeComision = BigDecimal.ZERO;
+
+    // Si una venta de este servicio suma sello de fidelizacion al cliente --
+    // lo define el administrador desde Fidelizacion -> Que aplica sello (no
+    // todos los servicios tienen por que sumar).
+    @Column(name = "aplica_fidelizacion", nullable = false, columnDefinition = "TINYINT(1) NOT NULL DEFAULT 1")
+    @Builder.Default
+    private Boolean aplicaFidelizacion = true;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

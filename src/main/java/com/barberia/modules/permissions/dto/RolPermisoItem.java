@@ -9,6 +9,7 @@ public record RolPermisoItem(
         @NotNull Modulo modulo,
         boolean puedeVer,
         boolean puedeEditar,
-        boolean puedeEliminar
+        boolean puedeEliminar,
+        boolean puedeVerDetalle
 ) {
 }

@@ -7,6 +7,7 @@ import com.barberia.modules.audit.AuditAction;
 import com.barberia.modules.audit.AuditPublisher;
 import com.barberia.modules.customers.dto.ClienteRequest;
 import com.barberia.modules.customers.dto.ClienteResponse;
+import com.barberia.modules.customers.dto.ClienteSelectorResponse;
 import com.barberia.modules.customers.entity.Cliente;
 import com.barberia.modules.customers.mapper.ClienteMapper;
 import com.barberia.modules.customers.repository.ClienteRepository;
@@ -18,13 +19,16 @@ import com.barberia.modules.icloud.service.IcloudSyncService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @Slf4j
 @Service
@@ -41,6 +45,21 @@ public class ClienteServiceImpl implements ClienteService {
     @Transactional(readOnly = true)
     public PageResponse<ClienteResponse> listarClientes(String search, Pageable pageable) {
         return buscarConFiltros(search, null, null, null, null, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ClienteSelectorResponse> listarParaSelector(String search) {
+        Specification<Cliente> spec = Specification.where(ClienteSpecifications.activo())
+                .and(ClienteSpecifications.conTexto(search));
+        Pageable pageable = PageRequest.of(0, 20, Sort.by("nombre").ascending());
+        return clienteRepository.findAll(spec, pageable).stream()
+                .map(c -> ClienteSelectorResponse.builder()
+                        .id(c.getId())
+                        .nombre(c.getNombre())
+                        .apellido(c.getApellido())
+                        .build())
+                .toList();
     }
 
     @Override
@@ -82,6 +101,12 @@ public class ClienteServiceImpl implements ClienteService {
                 .estado(true)
                 .cantidadSellos(0)
                 .recompensasDisponibles(0)
+                // Se registra "de una" con la fecha de alta como ultima
+                // visita -- despues se va actualizando sola cada vez que
+                // completa una venta (ver VentaServiceImpl), asi que un
+                // cliente recien creado no aparece como "nunca visito" en
+                // los filtros de inactividad desde el primer dia.
+                .ultimaVisita(LocalDate.now())
                 .build();
 
         cliente = clienteRepository.save(cliente);
@@ -138,6 +163,13 @@ public class ClienteServiceImpl implements ClienteService {
     public PageResponse<ClienteResponse> listarConRecompensas(Pageable pageable) {
         Page<Cliente> page = clienteRepository.findClientesConRecompensas(pageable);
         return PageResponse.from(page.map(clienteMapper::toResponse));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Integer obtenerProximoCodigo() {
+        Long proximo = clienteRepository.obtenerProximoAutoIncrement();
+        return proximo != null ? proximo.intValue() : null;
     }
 
     private Cliente findOrThrow(Integer id) {

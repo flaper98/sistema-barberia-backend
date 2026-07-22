@@ -33,4 +33,10 @@ public class RolPermiso {
 
     @Column(name = "puede_eliminar", nullable = false, columnDefinition = "TINYINT(1) NOT NULL DEFAULT 0")
     private boolean puedeEliminar;
+
+    // Solo tiene sentido para el modulo COMISIONES (ver el detalle por item
+    // de las ventas/comisiones de un barbero, con fecha) -- en el resto de
+    // los modulos queda en false sin usarse.
+    @Column(name = "puede_ver_detalle", nullable = false, columnDefinition = "TINYINT(1) NOT NULL DEFAULT 0")
+    private boolean puedeVerDetalle;
 }

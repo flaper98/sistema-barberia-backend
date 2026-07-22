@@ -16,28 +16,39 @@ import com.barberia.modules.finance.entity.TipoFinanza;
 import com.barberia.modules.finance.repository.FinanzaRepository;
 import com.barberia.modules.loyalty.dto.AgregarSelloRequest;
 import com.barberia.modules.loyalty.service.impl.FidelizacionServiceImpl;
+import com.barberia.modules.notifications.entity.TipoNotificacion;
+import com.barberia.modules.notifications.service.NotificacionService;
 import com.barberia.modules.products.entity.Producto;
 import com.barberia.modules.products.repository.ProductoRepository;
+import com.barberia.modules.sales.dto.VentaItemsUpdateRequest;
 import com.barberia.modules.sales.dto.VentaRequest;
 import com.barberia.modules.sales.dto.VentaResponse;
 import com.barberia.modules.sales.dto.VentaUpdateRequest;
 import com.barberia.modules.sales.entity.*;
 import com.barberia.modules.sales.mapper.VentaMapper;
 import com.barberia.modules.sales.repository.VentaRepository;
+import com.barberia.modules.services.entity.Paquete;
+import com.barberia.modules.services.entity.Servicio;
 import com.barberia.modules.services.repository.PaqueteRepository;
 import com.barberia.modules.services.repository.ServicioRepository;
+import com.barberia.modules.users.entity.Rol;
 import com.barberia.modules.workers.repository.BarberoRepository;
 import com.barberia.security.CustomUserDetails;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -56,6 +67,8 @@ public class VentaServiceImpl {
     private final FidelizacionServiceImpl fidelizacionService;
     private final VentaMapper ventaMapper;
     private final AuditPublisher auditPublisher;
+    private final NotificacionService notificacionService;
+    private final EntityManager em;
 
     @Transactional(readOnly = true)
     public PageResponse<VentaResponse> listar(EstadoVenta estado, LocalDateTime desde,
@@ -70,10 +83,49 @@ public class VentaServiceImpl {
         return ventaMapper.toResponse(findOrThrow(id));
     }
 
+    // "Mis Ventas" (BARBER): a diferencia del resto de los listados, aca
+    // cada venta trae calculada la comision que le corresponde a ESE
+    // barbero -- el barbero no necesita ver el total de la venta (esa plata
+    // no es toda suya), solo cuanto le toca a el.
     @Transactional(readOnly = true)
-    public PageResponse<VentaResponse> listarPorBarbero(Integer barberoId, Pageable pageable) {
-        return PageResponse.from(
-                ventaRepository.findByBarberoId(barberoId, pageable).map(ventaMapper::toResponse));
+    public PageResponse<VentaResponse> listarPorBarbero(Integer barberoId, LocalDateTime desde,
+                                                          LocalDateTime hasta, Pageable pageable) {
+        Page<Venta> page = ventaRepository.findByBarberoIdWithFilters(barberoId, desde, hasta, pageable);
+        Map<Integer, BigDecimal> comisiones = calcularComisionesPorVenta(
+                page.getContent().stream().map(Venta::getId).toList());
+        return PageResponse.from(page.map(v -> ventaMapper.toResponse(v).toBuilder()
+                .comisionCalculada(v.getEstado() == EstadoVenta.COMPLETADA
+                        ? comisiones.getOrDefault(v.getId(), BigDecimal.ZERO)
+                        : null)
+                .build()));
+    }
+
+    // Comision real que generó cada venta, pesada por la tasa de CADA item
+    // vendido (igual criterio que ComisionServiceImpl.calcularBasesYComisiones,
+    // pero por venta puntual en vez de agregado por rango de fechas).
+    @SuppressWarnings("unchecked")
+    private Map<Integer, BigDecimal> calcularComisionesPorVenta(List<Integer> ventaIds) {
+        if (ventaIds.isEmpty()) return Map.of();
+        List<Object[]> filas = em.createNativeQuery(
+                "SELECT vi.venta_id, " +
+                "COALESCE(SUM(CASE WHEN vi.tipo = 'SERVICIO' THEN vi.subtotal * COALESCE(s.porcentaje_comision, 0) / 100 " +
+                "                   WHEN vi.tipo = 'PAQUETE'  THEN vi.subtotal * COALESCE(pk.porcentaje_comision, 0) / 100 " +
+                "                   WHEN vi.tipo = 'PRODUCTO' THEN vi.subtotal * COALESCE(p.porcentaje_comision, 0) / 100 " +
+                "                   ELSE 0 END), 0) " +
+                "FROM venta_items vi " +
+                "LEFT JOIN servicios s ON s.id = vi.item_id AND vi.tipo = 'SERVICIO' " +
+                "LEFT JOIN paquetes pk ON pk.id = vi.item_id AND vi.tipo = 'PAQUETE' " +
+                "LEFT JOIN productos p ON p.id = vi.item_id AND vi.tipo = 'PRODUCTO' " +
+                "WHERE vi.venta_id IN (:ids) GROUP BY vi.venta_id")
+                .setParameter("ids", ventaIds)
+                .getResultList();
+
+        Map<Integer, BigDecimal> resultado = new HashMap<>();
+        for (Object[] fila : filas) {
+            BigDecimal comision = fila[1] != null ? ((BigDecimal) fila[1]).setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO;
+            resultado.put(((Number) fila[0]).intValue(), comision);
+        }
+        return resultado;
     }
 
     @Transactional(readOnly = true)
@@ -84,10 +136,28 @@ public class VentaServiceImpl {
 
     @Transactional
     public VentaResponse crear(VentaRequest request) {
-        var barbero = barberoRepository.findById(request.getBarberoId())
-                .orElseThrow(() -> new ResourceNotFoundException("Barbero", request.getBarberoId()));
-        if (!Boolean.TRUE.equals(barbero.getEstado())) {
+        // Sin barbero a proposito: no toda venta la atiende uno (ej. alguien
+        // compra o consume algo sin que sea por un servicio de barberia).
+        var barbero = request.getBarberoId() != null
+                ? barberoRepository.findById(request.getBarberoId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Barbero", request.getBarberoId()))
+                : null;
+        if (barbero != null && !Boolean.TRUE.equals(barbero.getEstado())) {
             throw new BusinessException("El barbero seleccionado no está activo");
+        }
+
+        CustomUserDetails userDetails = getCurrentUser();
+        boolean esSolicitudDeBarbero = userDetails != null && "BARBER".equals(userDetails.getRol());
+
+        // El barbero solo elige items -- cliente y pagos los asigna
+        // recepcion al aceptar y cobrar la solicitud (ver confirmar()). Para
+        // cualquier otro rol (venta directa, ya COMPLETADA), el cliente es
+        // opcional (venta a alguien no registrado), pero los pagos siguen
+        // siendo obligatorios -- se cobro plata de verdad, hay que saber como
+        // (puede ser mas de un metodo, ej. mitad efectivo mitad Yape).
+        boolean hayPagos = request.getPagos() != null && !request.getPagos().isEmpty();
+        if (!esSolicitudDeBarbero && !hayPagos) {
+            throw new BusinessException("El método de pago es obligatorio");
         }
 
         Cliente cliente = null;
@@ -146,19 +216,18 @@ public class VentaServiceImpl {
         BigDecimal total = subtotal.subtract(descuento);
         if (total.compareTo(BigDecimal.ZERO) < 0) total = BigDecimal.ZERO;
 
-        CustomUserDetails userDetails = getCurrentUser();
-        boolean esSolicitudDeBarbero = userDetails != null && "BARBER".equals(userDetails.getRol());
         EstadoVenta estadoInicial = esSolicitudDeBarbero ? EstadoVenta.PENDIENTE : EstadoVenta.COMPLETADA;
+        MetodoPago metodoPagoResumen = hayPagos ? validarYResumirPagos(request.getPagos(), total) : null;
 
         Venta venta = Venta.builder()
                 .clienteId(request.getClienteId())
                 .clienteNombre(clienteNombre)
                 .barberoId(request.getBarberoId())
-                .barberoNombre(barbero.getNombreCompleto())
+                .barberoNombre(barbero != null ? barbero.getNombreCompleto() : null)
                 .usuarioRegistroId(userDetails != null ? userDetails.getId() : null)
                 .usuarioRegistroNombre(userDetails != null ? userDetails.getNombreCompleto() : "Sistema")
                 .tipoVenta(tipoVenta)
-                .metodoPago(request.getMetodoPago())
+                .metodoPago(metodoPagoResumen)
                 .subtotal(subtotal)
                 .descuento(descuento)
                 .total(total)
@@ -181,6 +250,16 @@ public class VentaServiceImpl {
             venta.getItems().add(item);
         }
 
+        if (hayPagos) {
+            for (VentaRequest.PagoItemRequest pagoReq : request.getPagos()) {
+                venta.getPagos().add(VentaPago.builder()
+                        .venta(venta)
+                        .metodoPago(pagoReq.getMetodoPago())
+                        .monto(pagoReq.getMonto())
+                        .build());
+            }
+        }
+
         Venta saved = ventaRepository.save(venta);
 
         if (request.getCitaId() != null) {
@@ -193,9 +272,11 @@ public class VentaServiceImpl {
 
         if (saved.getEstado() == EstadoVenta.COMPLETADA) {
             registrarIngresoAutomatico(saved);
-            if (saved.getClienteId() != null && hayServicios) {
+            int unidadesFidelizacion = contarUnidadesFidelizacion(saved.getItems());
+            if (saved.getClienteId() != null && unidadesFidelizacion > 0) {
                 AgregarSelloRequest selloRequest = new AgregarSelloRequest();
                 selloRequest.setVentaId(saved.getId());
+                selloRequest.setCantidad(unidadesFidelizacion);
                 selloRequest.setMotivo("Servicio atendido - Venta #" + saved.getId());
                 fidelizacionService.agregarSello(saved.getClienteId(), selloRequest);
             }
@@ -205,24 +286,55 @@ public class VentaServiceImpl {
             }
         }
 
+        String nombreBarberoLog = barbero != null ? barbero.getNombreCompleto() : "sin barbero";
         String actor = userDetails != null ? userDetails.getUsername() : "SISTEMA";
         auditPublisher.publish(AuditAction.SALE_CREATE, actor,
                 "VENTA", saved.getId().toString(),
                 (esSolicitudDeBarbero ? "Solicitud de venta creada (pendiente de cobro) total=" : "Venta creada total=")
-                        + total + " barbero=" + barbero.getNombreCompleto());
+                        + total + " barbero=" + nombreBarberoLog);
         log.info("Venta {} ID={} barbero={} total={}", esSolicitudDeBarbero ? "solicitada" : "registrada",
-                saved.getId(), barbero.getNombreCompleto(), total);
+                saved.getId(), nombreBarberoLog, total);
+
+        if (esSolicitudDeBarbero) {
+            notificacionService.notificarRoles(List.of(Rol.ADMIN, Rol.CASHIER, Rol.RECEPTION),
+                    TipoNotificacion.VENTA_PENDIENTE,
+                    "Solicitud de cobro de " + barbero.getNombreCompleto() + " por S/ " + total,
+                    "VENTA", saved.getId());
+        }
+
         return ventaMapper.toResponse(saved);
     }
 
     @Transactional
-    public VentaResponse confirmar(Integer id, MetodoPago metodoPago) {
+    public VentaResponse confirmar(Integer id, List<VentaRequest.PagoItemRequest> pagos, Integer clienteId) {
         Venta venta = findOrThrow(id);
         if (venta.getEstado() != EstadoVenta.PENDIENTE) {
             throw new BusinessException("Esta venta no está pendiente de cobro");
         }
 
-        if (metodoPago != null) venta.setMetodoPago(metodoPago);
+        // Las solicitudes que crea un barbero llegan sin cliente -- recepcion
+        // lo puede asignar aca, al aceptar y cobrar. Sigue siendo opcional
+        // (no todo el que compra o consume algo esta registrado).
+        if (clienteId != null) {
+            Cliente nuevoCliente = clienteRepository.findById(clienteId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Cliente", clienteId));
+            venta.setClienteId(clienteId);
+            venta.setClienteNombre(nuevoCliente.getNombreCompleto());
+        }
+
+        if (pagos == null || pagos.isEmpty()) {
+            throw new BusinessException("No se puede cobrar una venta sin método de pago");
+        }
+        venta.setMetodoPago(validarYResumirPagos(pagos, venta.getTotal()));
+        venta.getPagos().clear();
+        for (VentaRequest.PagoItemRequest pagoReq : pagos) {
+            venta.getPagos().add(VentaPago.builder()
+                    .venta(venta)
+                    .metodoPago(pagoReq.getMetodoPago())
+                    .monto(pagoReq.getMonto())
+                    .build());
+        }
+
         venta.setEstado(EstadoVenta.COMPLETADA);
         Venta saved = ventaRepository.save(venta);
 
@@ -235,10 +347,11 @@ public class VentaServiceImpl {
 
         registrarIngresoAutomatico(saved);
 
-        boolean hayServicios = saved.getTipoVenta() == TipoVenta.SERVICIO || saved.getTipoVenta() == TipoVenta.MIXTA;
-        if (saved.getClienteId() != null && hayServicios) {
+        int unidadesFidelizacion = contarUnidadesFidelizacion(saved.getItems());
+        if (saved.getClienteId() != null && unidadesFidelizacion > 0) {
             AgregarSelloRequest selloRequest = new AgregarSelloRequest();
             selloRequest.setVentaId(saved.getId());
+            selloRequest.setCantidad(unidadesFidelizacion);
             selloRequest.setMotivo("Servicio atendido - Venta #" + saved.getId());
             fidelizacionService.agregarSello(saved.getClienteId(), selloRequest);
         }
@@ -259,11 +372,11 @@ public class VentaServiceImpl {
         return ventaMapper.toResponse(saved);
     }
 
-    // Edicion de los datos generales de una venta ya registrada (solo ADMIN,
-    // ver @PreAuthorize en el controller). A proposito NO permite tocar los
-    // items -- para eso hay que anular y volver a registrar: recalcular stock
-    // y sellos de fidelizacion ya aplicados por cambios de item es mucho mas
-    // riesgoso que corregir datos generales.
+    // Edicion de una venta ya registrada (solo ADMIN, ver @PreAuthorize en el
+    // controller). Reemplaza tanto los datos generales como los items -- el
+    // subtotal/total/tipo de venta se recalculan igual que en crear(). No
+    // toca stock (la venta nunca lo descuenta directamente, ver crear(): solo
+    // valida disponibilidad -- el descuento real es manual via Inventario).
     @Transactional
     public VentaResponse actualizar(Integer id, VentaUpdateRequest request) {
         Venta venta = findOrThrow(id);
@@ -271,30 +384,99 @@ public class VentaServiceImpl {
             throw new BusinessException("No se puede editar una venta anulada");
         }
 
-        Cliente nuevoCliente = clienteRepository.findById(request.getClienteId())
-                .orElseThrow(() -> new ResourceNotFoundException("Cliente", request.getClienteId()));
-        var nuevoBarbero = barberoRepository.findById(request.getBarberoId())
-                .orElseThrow(() -> new ResourceNotFoundException("Barbero", request.getBarberoId()));
+        // Ninguno de los dos es obligatorio (ver VentaUpdateRequest) -- no
+        // toda venta tiene un cliente registrado ni un barbero asignado.
+        Cliente nuevoCliente = request.getClienteId() != null
+                ? clienteRepository.findById(request.getClienteId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Cliente", request.getClienteId()))
+                : null;
+        var nuevoBarbero = request.getBarberoId() != null
+                ? barberoRepository.findById(request.getBarberoId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Barbero", request.getBarberoId()))
+                : null;
 
         // Si la venta no tenia cliente y se le agrega uno ahora, hay que darle
-        // el sello de fidelizacion que se salteo en su momento. Si el cliente
-        // cambia de uno a otro (caso raro), los sellos ya sumados se quedan
-        // como estan -- revertirlos de forma segura excede el alcance de esta
-        // edicion "solo datos generales".
+        // TODOS los sellos que corresponden a los items actuales (no tenia
+        // ninguno antes). Si ya tenia cliente y lo que cambia son los items,
+        // solo se otorga la DIFERENCIA a favor (ej. tenia 1 unidad que sumaba
+        // sello y ahora tiene 3 -> se le deben 2 mas) -- si la cantidad de
+        // unidades que suman sello baja o queda igual, no se le quita nada:
+        // no existe today un mecanismo seguro para deshacer sellos ya
+        // otorgados (ver FidelizacionServiceImpl), asi que queda como esta.
         boolean clienteAgregado = venta.getClienteId() == null;
+        int unidadesFidelizacionAntes = contarUnidadesFidelizacion(new ArrayList<>(venta.getItems()));
+
+        boolean hayServicios = false;
+        boolean hayProductos = false;
+        BigDecimal subtotal = BigDecimal.ZERO;
+        List<VentaItem> nuevosItems = new ArrayList<>();
+        for (VentaRequest.VentaItemRequest item : request.getItems()) {
+            if (item.getTipo() == TipoItem.SERVICIO) {
+                var servicio = servicioRepository.findById(item.getItemId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Servicio", item.getItemId()));
+                if (!Boolean.TRUE.equals(servicio.getEstado())) {
+                    throw new BusinessException("El servicio '" + servicio.getNombre() + "' no está activo");
+                }
+                hayServicios = true;
+            } else if (item.getTipo() == TipoItem.PAQUETE) {
+                var paquete = paqueteRepository.findById(item.getItemId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Paquete", item.getItemId()));
+                if (!Boolean.TRUE.equals(paquete.getEstado())) {
+                    throw new BusinessException("El paquete '" + paquete.getNombre() + "' no está activo");
+                }
+                hayServicios = true;
+            } else {
+                Producto producto = productoRepository.findById(item.getItemId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Producto", item.getItemId()));
+                if (!Boolean.TRUE.equals(producto.getEstado())) {
+                    throw new BusinessException("El producto '" + producto.getNombre() + "' no está activo");
+                }
+                if (producto.getStockActual() < item.getCantidad()) {
+                    throw new BusinessException("Stock insuficiente para '" + producto.getNombre() +
+                            "'. Disponible: " + producto.getStockActual() + ", solicitado: " + item.getCantidad());
+                }
+                hayProductos = true;
+            }
+            BigDecimal itemSubtotal = item.getPrecio().multiply(BigDecimal.valueOf(item.getCantidad()));
+            subtotal = subtotal.add(itemSubtotal);
+            nuevosItems.add(VentaItem.builder()
+                    .venta(venta)
+                    .tipo(item.getTipo())
+                    .itemId(item.getItemId())
+                    .nombre(item.getNombre())
+                    .precio(item.getPrecio())
+                    .cantidad(item.getCantidad())
+                    .subtotal(itemSubtotal)
+                    .build());
+        }
+
+        venta.getItems().clear();
+        venta.getItems().addAll(nuevosItems);
+        venta.setTipoVenta(determinarTipo(hayServicios, hayProductos));
+        venta.setSubtotal(subtotal);
 
         venta.setClienteId(request.getClienteId());
-        venta.setClienteNombre(nuevoCliente.getNombreCompleto());
+        venta.setClienteNombre(nuevoCliente != null ? nuevoCliente.getNombreCompleto() : null);
         venta.setBarberoId(request.getBarberoId());
-        venta.setBarberoNombre(nuevoBarbero.getNombreCompleto());
-        venta.setMetodoPago(request.getMetodoPago());
+        venta.setBarberoNombre(nuevoBarbero != null ? nuevoBarbero.getNombreCompleto() : null);
         venta.setNotas(request.getNotas());
 
         BigDecimal descuento = request.getDescuento() != null ? request.getDescuento() : BigDecimal.ZERO;
-        BigDecimal nuevoTotal = venta.getSubtotal().subtract(descuento);
+        BigDecimal nuevoTotal = subtotal.subtract(descuento);
         if (nuevoTotal.compareTo(BigDecimal.ZERO) < 0) nuevoTotal = BigDecimal.ZERO;
         venta.setDescuento(descuento);
         venta.setTotal(nuevoTotal);
+
+        // @NotEmpty en VentaUpdateRequest.pagos ya garantiza que no venga vacio.
+        venta.setMetodoPago(validarYResumirPagos(request.getPagos(), nuevoTotal));
+        venta.getPagos().clear();
+        for (VentaRequest.PagoItemRequest pagoReq : request.getPagos()) {
+            venta.getPagos().add(VentaPago.builder()
+                    .venta(venta)
+                    .metodoPago(pagoReq.getMetodoPago())
+                    .monto(pagoReq.getMonto())
+                    .build());
+        }
 
         Venta saved = ventaRepository.save(venta);
 
@@ -308,17 +490,22 @@ public class VentaServiceImpl {
                 finanzaRepository.save(finanza);
             });
 
-            boolean hayServicios = saved.getTipoVenta() == TipoVenta.SERVICIO || saved.getTipoVenta() == TipoVenta.MIXTA;
-            if (clienteAgregado && hayServicios) {
+            int unidadesFidelizacionAhora = contarUnidadesFidelizacion(saved.getItems());
+            int unidadesAOtorgar = clienteAgregado ? unidadesFidelizacionAhora
+                    : Math.max(0, unidadesFidelizacionAhora - unidadesFidelizacionAntes);
+            if (saved.getClienteId() != null && unidadesAOtorgar > 0) {
                 AgregarSelloRequest selloRequest = new AgregarSelloRequest();
                 selloRequest.setVentaId(saved.getId());
-                selloRequest.setMotivo("Servicio atendido - Venta #" + saved.getId() + " (cliente agregado al editar)");
+                selloRequest.setCantidad(unidadesAOtorgar);
+                selloRequest.setMotivo("Servicio atendido - Venta #" + saved.getId() + " (agregado al editar)");
                 fidelizacionService.agregarSello(saved.getClienteId(), selloRequest);
             }
-            clienteRepository.findById(saved.getClienteId()).ifPresent(cliente -> {
-                cliente.setUltimaVisita(saved.getFecha().toLocalDate());
-                clienteRepository.save(cliente);
-            });
+            if (saved.getClienteId() != null) {
+                clienteRepository.findById(saved.getClienteId()).ifPresent(cliente -> {
+                    cliente.setUltimaVisita(saved.getFecha().toLocalDate());
+                    clienteRepository.save(cliente);
+                });
+            }
         }
 
         CustomUserDetails userDetails = getCurrentUser();
@@ -326,6 +513,87 @@ public class VentaServiceImpl {
         auditPublisher.publish(AuditAction.SALE_UPDATE, actor,
                 "VENTA", saved.getId().toString(), "Venta editada por administrador");
         log.info("Venta ID={} editada por {}", saved.getId(), actor);
+        return ventaMapper.toResponse(saved);
+    }
+
+    // El barbero puede agregar/quitar items de SU PROPIA solicitud mientras
+    // siga PENDIENTE (ej. el cliente pide un servicio mas a mitad de la
+    // atencion) -- no puede tocar cliente, metodo de pago ni barbero (para
+    // eso existe actualizar(), solo ADMIN), ni editar una solicitud ajena
+    // o que recepcion ya cobro (ver @PreAuthorize en el controller para el
+    // rol, y los guards de abajo para dueño/estado).
+    @Transactional
+    public VentaResponse actualizarItemsPropios(Integer id, VentaItemsUpdateRequest request) {
+        Venta venta = findOrThrow(id);
+
+        CustomUserDetails userDetails = getCurrentUser();
+        Integer miBarberoId = userDetails != null ? userDetails.getUsuario().getBarberoId() : null;
+        if (miBarberoId == null || !miBarberoId.equals(venta.getBarberoId())) {
+            throw new BusinessException("No podés editar la solicitud de otro barbero");
+        }
+        if (venta.getEstado() != EstadoVenta.PENDIENTE) {
+            throw new BusinessException("Solo se puede editar mientras está pendiente de cobro");
+        }
+
+        boolean hayServicios = false;
+        boolean hayProductos = false;
+        BigDecimal subtotal = BigDecimal.ZERO;
+        List<VentaItem> nuevosItems = new ArrayList<>();
+        for (VentaRequest.VentaItemRequest item : request.getItems()) {
+            if (item.getTipo() == TipoItem.SERVICIO) {
+                var servicio = servicioRepository.findById(item.getItemId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Servicio", item.getItemId()));
+                if (!Boolean.TRUE.equals(servicio.getEstado())) {
+                    throw new BusinessException("El servicio '" + servicio.getNombre() + "' no está activo");
+                }
+                hayServicios = true;
+            } else if (item.getTipo() == TipoItem.PAQUETE) {
+                var paquete = paqueteRepository.findById(item.getItemId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Paquete", item.getItemId()));
+                if (!Boolean.TRUE.equals(paquete.getEstado())) {
+                    throw new BusinessException("El paquete '" + paquete.getNombre() + "' no está activo");
+                }
+                hayServicios = true;
+            } else {
+                Producto producto = productoRepository.findById(item.getItemId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Producto", item.getItemId()));
+                if (!Boolean.TRUE.equals(producto.getEstado())) {
+                    throw new BusinessException("El producto '" + producto.getNombre() + "' no está activo");
+                }
+                if (producto.getStockActual() < item.getCantidad()) {
+                    throw new BusinessException("Stock insuficiente para '" + producto.getNombre() +
+                            "'. Disponible: " + producto.getStockActual() + ", solicitado: " + item.getCantidad());
+                }
+                hayProductos = true;
+            }
+            BigDecimal itemSubtotal = item.getPrecio().multiply(BigDecimal.valueOf(item.getCantidad()));
+            subtotal = subtotal.add(itemSubtotal);
+            nuevosItems.add(VentaItem.builder()
+                    .venta(venta)
+                    .tipo(item.getTipo())
+                    .itemId(item.getItemId())
+                    .nombre(item.getNombre())
+                    .precio(item.getPrecio())
+                    .cantidad(item.getCantidad())
+                    .subtotal(itemSubtotal)
+                    .build());
+        }
+
+        venta.getItems().clear();
+        venta.getItems().addAll(nuevosItems);
+        venta.setTipoVenta(determinarTipo(hayServicios, hayProductos));
+        venta.setSubtotal(subtotal);
+
+        BigDecimal nuevoTotal = subtotal.subtract(venta.getDescuento());
+        if (nuevoTotal.compareTo(BigDecimal.ZERO) < 0) nuevoTotal = BigDecimal.ZERO;
+        venta.setTotal(nuevoTotal);
+
+        Venta saved = ventaRepository.save(venta);
+
+        String actor = userDetails.getUsername();
+        auditPublisher.publish(AuditAction.SALE_UPDATE, actor,
+                "VENTA", saved.getId().toString(), "Barbero editó los ítems de su solicitud pendiente");
+        log.info("Venta ID={} - items editados por barbero {}", saved.getId(), actor);
         return ventaMapper.toResponse(saved);
     }
 
@@ -346,6 +614,38 @@ public class VentaServiceImpl {
         return ventaMapper.toResponse(saved);
     }
 
+    // Borrado definitivo (solo ADMIN, ver @PreAuthorize en el controller) --
+    // a diferencia de anular(), esto saca la fila entera de la base (audit
+    // log aparte). Igual que anular(), no revierte el sello de fidelizacion
+    // ya otorgado (no existe mecanismo seguro para eso todavia). Si la venta
+    // venia de una cita, desvincula esa cita (y la vuelve a PENDIENTE si
+    // habia quedado ATENDIDA por esta misma venta) para no dejar una
+    // referencia colgada a una venta que ya no existe.
+    @Transactional
+    public void eliminar(Integer id) {
+        Venta venta = findOrThrow(id);
+        finanzaRepository.deleteByVentaId(id);
+
+        if (venta.getCitaId() != null) {
+            citaRepository.findById(venta.getCitaId()).ifPresent(cita -> {
+                if (cita.getVentaId() != null && cita.getVentaId().equals(venta.getId())) {
+                    cita.setVentaId(null);
+                    if (cita.getEstado() == EstadoCita.ATENDIDA) {
+                        cita.setEstado(EstadoCita.PENDIENTE);
+                    }
+                    citaRepository.save(cita);
+                }
+            });
+        }
+
+        CustomUserDetails userDetails = getCurrentUser();
+        String actor = userDetails != null ? userDetails.getUsername() : "SISTEMA";
+        auditPublisher.publish(AuditAction.SALE_DELETE, actor,
+                "VENTA", id.toString(), "Venta eliminada definitivamente total=" + venta.getTotal());
+        log.info("Venta ID={} eliminada definitivamente por {}", id, actor);
+        ventaRepository.delete(venta);
+    }
+
     private void registrarIngresoAutomatico(Venta venta) {
         Finanza finanza = Finanza.builder()
                 .tipo(TipoFinanza.INGRESO)
@@ -362,10 +662,48 @@ public class VentaServiceImpl {
         finanzaRepository.save(finanza);
     }
 
+    // Valida que la suma de los pagos coincida exactamente con lo que se
+    // esta cobrando y devuelve el resumen que va en Venta.metodoPago: el
+    // metodo unico si hay uno solo, o MIXTO si se combinaron dos o mas (ej.
+    // mitad efectivo, mitad Yape). No toca la coleccion Venta.pagos -- eso
+    // lo arma cada llamador, porque en crear() la Venta recien se esta
+    // construyendo y todavia no existe para referenciarla.
+    private MetodoPago validarYResumirPagos(List<VentaRequest.PagoItemRequest> pagos, BigDecimal totalEsperado) {
+        BigDecimal suma = pagos.stream()
+                .map(VentaRequest.PagoItemRequest::getMonto)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (suma.compareTo(totalEsperado) != 0) {
+            throw new BusinessException("La suma de los métodos de pago (S/ " + suma
+                    + ") no coincide con el total a cobrar (S/ " + totalEsperado + ")");
+        }
+        return pagos.size() == 1 ? pagos.get(0).getMetodoPago() : MetodoPago.MIXTO;
+    }
+
     private TipoVenta determinarTipo(boolean hayServicios, boolean hayProductos) {
         if (hayServicios && hayProductos) return TipoVenta.MIXTA;
         if (hayProductos) return TipoVenta.PRODUCTO;
         return TipoVenta.SERVICIO;
+    }
+
+    // Cuantos sellos corresponden por los items de esta venta: no es "1 por
+    // venta" sino la suma de la CANTIDAD de cada item cuya regla de
+    // fidelizacion esta activada (ver Servicio/Producto/Paquete#aplicaFidelizacion,
+    // editable desde Fidelizacion -> Que aplica sello) -- ej. un corte y un
+    // alisado (ambos activados) en la misma venta son 2, no 1.
+    private int contarUnidadesFidelizacion(List<VentaItem> items) {
+        int total = 0;
+        for (VentaItem item : items) {
+            boolean aplica = switch (item.getTipo()) {
+                case SERVICIO -> servicioRepository.findById(item.getItemId())
+                        .map(Servicio::getAplicaFidelizacion).orElse(false);
+                case PAQUETE -> paqueteRepository.findById(item.getItemId())
+                        .map(Paquete::getAplicaFidelizacion).orElse(false);
+                case PRODUCTO -> productoRepository.findById(item.getItemId())
+                        .map(Producto::getAplicaFidelizacion).orElse(false);
+            };
+            if (Boolean.TRUE.equals(aplica)) total += item.getCantidad();
+        }
+        return total;
     }
 
     private CustomUserDetails getCurrentUser() {

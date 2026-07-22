@@ -22,15 +22,23 @@ public enum AuditAction {
     SALE_CREATE,
     SALE_UPDATE,
     SALE_CANCEL,
+    SALE_DELETE,
 
     // Inventario
     STOCK_MOVEMENT,
 
     // Fidelización
     STAMP_ADD,
+    STAMP_REMOVE,
     REWARD_REDEEM,
 
     // Configuración
     CONFIG_UPDATE,
-    LOYALTY_CONFIG_UPDATE
+    LOYALTY_CONFIG_UPDATE,
+
+    // Comisiones de barberos
+    TIP_ADD,
+    CONSUMPTION_DISCOUNT_ADD,
+    COMMISION_CUT_CREATE,
+    COMMISION_CUT_PAY
 }

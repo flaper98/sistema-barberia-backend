@@ -53,6 +53,21 @@ public class Producto {
     @Builder.Default
     private Boolean estado = true;
 
+    // % que se le paga de comision al barbero por cada venta de este
+    // producto -- lo define el administrador desde Comisiones -> Tasas de
+    // comision (no todos los productos pagan lo mismo).
+    @Column(name = "porcentaje_comision", nullable = false, precision = 5, scale = 2)
+    @Builder.Default
+    private BigDecimal porcentajeComision = BigDecimal.ZERO;
+
+    // Si una venta de este producto suma sello de fidelizacion al cliente --
+    // lo define el administrador desde Fidelizacion -> Que aplica sello.
+    // Arranca en false: hoy ningun producto solo suma sello, distinto de
+    // servicios/paquetes (ver V14__fidelizacion_por_item.sql).
+    @Column(name = "aplica_fidelizacion", nullable = false, columnDefinition = "TINYINT(1) NOT NULL DEFAULT 0")
+    @Builder.Default
+    private Boolean aplicaFidelizacion = false;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

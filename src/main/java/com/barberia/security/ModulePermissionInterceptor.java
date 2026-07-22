@@ -45,6 +45,7 @@ public class ModulePermissionInterceptor implements HandlerInterceptor {
         NOMBRE_MODULO.put(Modulo.FINANZAS, "Finanzas");
         NOMBRE_MODULO.put(Modulo.REPORTES, "Reportes");
         NOMBRE_MODULO.put(Modulo.CONFIGURACION, "Configuración");
+        NOMBRE_MODULO.put(Modulo.COMISIONES, "Comisiones");
     }
 
     private final RolPermisoService rolPermisoService;
@@ -84,6 +85,7 @@ public class ModulePermissionInterceptor implements HandlerInterceptor {
         // Citas (donde el barbero solo tiene acceso de lectura).
         if (path.matches("/api/appointments/\\d+/convert-to-sale")) return Modulo.VENTAS;
         if (path.startsWith("/api/appointments")) return Modulo.CITAS;
+        if (path.startsWith("/api/customers/for-sale")) return null;
         if (path.startsWith("/api/customers")) return Modulo.CLIENTES;
         if (path.startsWith("/api/workers/for-sale")) return null;
         if (path.startsWith("/api/workers")) return Modulo.BARBEROS;
@@ -94,6 +96,7 @@ public class ModulePermissionInterceptor implements HandlerInterceptor {
         if (path.startsWith("/api/loyalty")) return Modulo.FIDELIZACION;
         if (path.startsWith("/api/finance")) return Modulo.FINANZAS;
         if (path.startsWith("/api/config")) return Modulo.CONFIGURACION;
+        if (path.startsWith("/api/commissions")) return Modulo.COMISIONES;
         return null;
     }
 }

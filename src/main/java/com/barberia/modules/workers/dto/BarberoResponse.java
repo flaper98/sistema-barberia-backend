@@ -18,7 +18,6 @@ public class BarberoResponse {
     private final String nombreCompleto;
     private final String telefono;
     private final String especialidad;
-    private final BigDecimal porcentajeComision;
     private final BigDecimal totalGenerado;
     private final Integer serviciosRealizados;
     private final Boolean estado;

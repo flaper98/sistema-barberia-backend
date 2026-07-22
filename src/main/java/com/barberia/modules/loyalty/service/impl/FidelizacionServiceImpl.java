@@ -7,8 +7,11 @@ import com.barberia.modules.audit.AuditAction;
 import com.barberia.modules.audit.AuditPublisher;
 import com.barberia.modules.customers.entity.Cliente;
 import com.barberia.modules.customers.repository.ClienteRepository;
+import com.barberia.modules.customers.repository.ClienteSpecifications;
+import com.barberia.modules.loyalty.dto.ActualizarReglaFidelizacionRequest;
 import com.barberia.modules.loyalty.dto.AgregarSelloRequest;
 import com.barberia.modules.loyalty.dto.FidelizacionCuentaResponse;
+import com.barberia.modules.loyalty.dto.ReglaFidelizacionResponse;
 import com.barberia.modules.loyalty.dto.SelloResponse;
 import com.barberia.modules.loyalty.entity.FidelizacionConfig;
 import com.barberia.modules.loyalty.entity.FidelizacionCuenta;
@@ -19,9 +22,16 @@ import com.barberia.modules.loyalty.repository.FidelizacionConfigRepository;
 import com.barberia.modules.loyalty.repository.FidelizacionCuentaRepository;
 import com.barberia.modules.loyalty.repository.FidelizacionMovimientoRepository;
 import com.barberia.modules.loyalty.repository.RecompensaRepository;
+import com.barberia.modules.products.entity.Producto;
+import com.barberia.modules.products.repository.ProductoRepository;
+import com.barberia.modules.services.entity.Paquete;
+import com.barberia.modules.services.entity.Servicio;
+import com.barberia.modules.services.repository.PaqueteRepository;
+import com.barberia.modules.services.repository.ServicioRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +58,9 @@ public class FidelizacionServiceImpl {
     private final ClienteRepository clienteRepository;
     private final FidelizacionConfigRepository configRepository;
     private final AuditPublisher auditPublisher;
+    private final ServicioRepository servicioRepository;
+    private final ProductoRepository productoRepository;
+    private final PaqueteRepository paqueteRepository;
 
     @Transactional(readOnly = true)
     public FidelizacionCuentaResponse obtenerCuenta(Integer clienteId) {
@@ -86,7 +99,15 @@ public class FidelizacionServiceImpl {
         FidelizacionConfig config = obtenerConfig();
         FidelizacionCuenta cuenta = obtenerOCrearCuenta(clienteId, config);
 
-        int cantidad = config.getSellosPorGanancia() != null ? config.getSellosPorGanancia() : 1;
+        // sellosPorGanancia es cuanto vale CADA "ganancia" (config, default
+        // 1); request.getCantidad() es CUANTAS ganancias hubo en esta venta
+        // (ej. 2 servicios que suman sello en la misma venta = 2, no 1 --
+        // ver VentaServiceImpl#contarUnidadesFidelizacion). El uso manual
+        // (boton "Agregar sello" en Fidelizacion) no manda cantidad, así que
+        // vale 1 -- se comporta exactamente como antes en ese caso.
+        int porGanancia = config.getSellosPorGanancia() != null ? config.getSellosPorGanancia() : 1;
+        int vecesQueGano = request.getCantidad() != null && request.getCantidad() > 0 ? request.getCantidad() : 1;
+        int cantidad = porGanancia * vecesQueGano;
         cuenta.setSellosActuales(cuenta.getSellosActuales() + cantidad);
         cuenta.setTotalSellosAcumulados(cuenta.getTotalSellosAcumulados() + cantidad);
 
@@ -124,6 +145,57 @@ public class FidelizacionServiceImpl {
                 .mensaje(nuevaRecompensa
                         ? "¡Felicitaciones! El cliente obtuvo una nueva recompensa."
                         : "Sello agregado correctamente. Sellos actuales: " + cuenta.getSellosActuales())
+                .build();
+    }
+
+    // Para corregir un sello agregado por error -- quita de a uno. Si los
+    // sellos actuales ya estan en 0 pero el cliente tiene una recompensa
+    // completa, deshace ese ciclo (le devuelve sellosNecesarios-1 y le saca
+    // una recompensa) en vez de dejar sellosActuales en negativo.
+    @Transactional
+    public SelloResponse quitarSello(Integer clienteId, String motivo) {
+        Cliente cliente = clienteRepository.findById(clienteId)
+                .orElseThrow(() -> new ResourceNotFoundException("Cliente", clienteId));
+
+        FidelizacionCuenta cuenta = cuentaRepository.findByClienteId(clienteId)
+                .orElseThrow(() -> new BusinessException("El cliente no tiene sellos para quitar"));
+
+        int cantidad = 1;
+        if (cuenta.getSellosActuales() <= 0 && cuenta.getRecompensasDisponibles() <= 0) {
+            throw new BusinessException("El cliente no tiene sellos para quitar");
+        }
+
+        if (cuenta.getSellosActuales() > 0) {
+            cuenta.setSellosActuales(cuenta.getSellosActuales() - cantidad);
+        } else {
+            cuenta.setRecompensasDisponibles(cuenta.getRecompensasDisponibles() - 1);
+            cuenta.setSellosActuales(cuenta.getSellosNecesarios() - cantidad);
+        }
+        cuenta.setTotalSellosAcumulados(Math.max(0, cuenta.getTotalSellosAcumulados() - cantidad));
+        cuenta.setUltimoMovimiento(LocalDateTime.now());
+        cuenta = cuentaRepository.save(cuenta);
+
+        sincronizarCliente(cliente, cuenta);
+
+        movimientoRepository.save(FidelizacionMovimiento.builder()
+                .cuentaId(cuenta.getId())
+                .clienteId(clienteId)
+                .clienteNombre(cliente.getNombreCompleto())
+                .tipo(TipoMovimientoFidelizacion.AJUSTE)
+                .cantidad(-cantidad)
+                .motivo(motivo)
+                .build());
+
+        auditPublisher.publish(AuditAction.STAMP_REMOVE, "SISTEMA",
+                "CLIENTE", clienteId.toString(), "Sello quitado. Motivo: " + motivo);
+        log.info("Sello quitado para cliente ID={}", clienteId);
+
+        return SelloResponse.builder()
+                .sellosActuales(cuenta.getSellosActuales())
+                .sellosNecesarios(cuenta.getSellosNecesarios())
+                .recompensasDisponibles(cuenta.getRecompensasDisponibles())
+                .nuevaRecompensaObtenida(false)
+                .mensaje("Sello quitado correctamente. Sellos actuales: " + cuenta.getSellosActuales())
                 .build();
     }
 
@@ -188,10 +260,19 @@ public class FidelizacionServiceImpl {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<FidelizacionCuentaResponse> listarTodasLasCuentas(Pageable pageable) {
+    public PageResponse<FidelizacionCuentaResponse> listarTodasLasCuentas(Pageable pageable, String search) {
         FidelizacionConfig config = obtenerConfig();
+        // Antes se usaba findByEstadoTrue(pageable) sin busqueda -- con 1000+
+        // clientes, la pantalla de Fidelizacion solo mostraba la primera
+        // pagina ordenada alfabeticamente y no habia forma de buscar del lado
+        // del servidor, asi que un cliente recien creado (con 0 sellos, sin
+        // razon para aparecer en esa primera pagina) parecia "no estar" en
+        // Fidelizacion aunque el backend siempre lo hubiera incluido tarde o
+        // temprano. Se reusa la misma Specification de busqueda de Clientes.
+        Specification<Cliente> spec = Specification.where(ClienteSpecifications.activo())
+                .and(ClienteSpecifications.conTexto(search));
         return PageResponse.from(
-                clienteRepository.findByEstadoTrue(pageable)
+                clienteRepository.findAll(spec, pageable)
                         .map(cliente -> {
                             FidelizacionCuenta cuenta = cuentaRepository.findByClienteId(cliente.getId())
                                     .orElseGet(() -> cuentaVacia(cliente.getId(), config));
@@ -256,6 +337,82 @@ public class FidelizacionServiceImpl {
                 .descripcionRecompensa(cuenta.getDescripcionRecompensa() != null
                         ? cuenta.getDescripcionRecompensa() : descripcionRecompensaDefault)
                 .ultimoMovimiento(cuenta.getUltimoMovimiento())
+                .build();
+    }
+
+    // ─── Reglas de fidelización (por servicio / producto / paquete) ────────
+    // Que un servicio/producto/paquete sume sello no depende de quien lo
+    // vendio, sino de que se vendio -- ver VentaServiceImpl#calificaParaFidelizacion,
+    // que consulta estas mismas reglas al completar una venta.
+
+    @Transactional(readOnly = true)
+    public List<ReglaFidelizacionResponse> listarReglasServicios() {
+        return servicioRepository.findByEstadoTrue().stream()
+                .sorted((a, b) -> a.getNombre().compareToIgnoreCase(b.getNombre()))
+                .map(s -> ReglaFidelizacionResponse.builder()
+                        .id(s.getId()).nombre(s.getNombre()).precio(s.getPrecio())
+                        .aplicaFidelizacion(s.getAplicaFidelizacion())
+                        .build())
+                .toList();
+    }
+
+    @Transactional
+    public ReglaFidelizacionResponse actualizarReglaServicio(Integer id, ActualizarReglaFidelizacionRequest request) {
+        Servicio servicio = servicioRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Servicio", id));
+        servicio.setAplicaFidelizacion(request.getAplicaFidelizacion());
+        servicio = servicioRepository.save(servicio);
+        log.info("Regla de fidelización actualizada: servicio {} -> {}", servicio.getNombre(), request.getAplicaFidelizacion());
+        return ReglaFidelizacionResponse.builder()
+                .id(servicio.getId()).nombre(servicio.getNombre()).precio(servicio.getPrecio())
+                .aplicaFidelizacion(servicio.getAplicaFidelizacion())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReglaFidelizacionResponse> listarReglasProductos() {
+        return productoRepository.findByEstadoTrue(org.springframework.data.domain.Pageable.unpaged()).stream()
+                .sorted((a, b) -> a.getNombre().compareToIgnoreCase(b.getNombre()))
+                .map(p -> ReglaFidelizacionResponse.builder()
+                        .id(p.getId()).nombre(p.getNombre()).precio(p.getPrecioVenta())
+                        .aplicaFidelizacion(p.getAplicaFidelizacion())
+                        .build())
+                .toList();
+    }
+
+    @Transactional
+    public ReglaFidelizacionResponse actualizarReglaProducto(Integer id, ActualizarReglaFidelizacionRequest request) {
+        Producto producto = productoRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Producto", id));
+        producto.setAplicaFidelizacion(request.getAplicaFidelizacion());
+        producto = productoRepository.save(producto);
+        log.info("Regla de fidelización actualizada: producto {} -> {}", producto.getNombre(), request.getAplicaFidelizacion());
+        return ReglaFidelizacionResponse.builder()
+                .id(producto.getId()).nombre(producto.getNombre()).precio(producto.getPrecioVenta())
+                .aplicaFidelizacion(producto.getAplicaFidelizacion())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReglaFidelizacionResponse> listarReglasPaquetes() {
+        return paqueteRepository.findByEstadoTrueOrderByPrecio().stream()
+                .map(pk -> ReglaFidelizacionResponse.builder()
+                        .id(pk.getId()).nombre(pk.getNombre()).precio(pk.getPrecio())
+                        .aplicaFidelizacion(pk.getAplicaFidelizacion())
+                        .build())
+                .toList();
+    }
+
+    @Transactional
+    public ReglaFidelizacionResponse actualizarReglaPaquete(Integer id, ActualizarReglaFidelizacionRequest request) {
+        Paquete paquete = paqueteRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Paquete", id));
+        paquete.setAplicaFidelizacion(request.getAplicaFidelizacion());
+        paquete = paqueteRepository.save(paquete);
+        log.info("Regla de fidelización actualizada: paquete {} -> {}", paquete.getNombre(), request.getAplicaFidelizacion());
+        return ReglaFidelizacionResponse.builder()
+                .id(paquete.getId()).nombre(paquete.getNombre()).precio(paquete.getPrecio())
+                .aplicaFidelizacion(paquete.getAplicaFidelizacion())
                 .build();
     }
 }

@@ -36,4 +36,14 @@ public interface ClienteRepository extends JpaRepository<Cliente, Integer>, JpaS
     @Modifying
     @Query("UPDATE Cliente c SET c.estado = :estado WHERE c.id = :id")
     void updateEstado(@Param("id") Integer id, @Param("estado") Boolean estado);
+
+    // Vista previa del codigo que le va a tocar al proximo cliente que se
+    // registre -- lee el AUTO_INCREMENT real de MySQL (no un simple
+    // COUNT(*)+1, que se desincroniza apenas se borra algun cliente). Es
+    // solo informativo: si dos personas registran clientes al mismo
+    // instante, el numero real asignado en el INSERT puede diferir en 1 --
+    // no se usa para nada mas que mostrarlo en el formulario.
+    @Query(value = "SELECT AUTO_INCREMENT FROM information_schema.TABLES " +
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'clientes'", nativeQuery = true)
+    Long obtenerProximoAutoIncrement();
 }

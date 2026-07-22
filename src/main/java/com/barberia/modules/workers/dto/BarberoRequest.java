@@ -5,8 +5,6 @@ import jakarta.validation.constraints.*;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.math.BigDecimal;
-
 @Getter
 @Setter
 @Schema(description = "Datos para crear o actualizar un barbero")
@@ -28,12 +26,6 @@ public class BarberoRequest {
     @Size(max = 200, message = "La especialidad no puede superar 200 caracteres")
     @Schema(example = "Corte y barba clásica")
     private String especialidad;
-
-    @NotNull(message = "El porcentaje de comisión es obligatorio")
-    @DecimalMin(value = "0.00", message = "El porcentaje de comisión no puede ser negativo")
-    @DecimalMax(value = "100.00", message = "El porcentaje de comisión no puede superar 100")
-    @Schema(example = "45.00")
-    private BigDecimal porcentajeComision;
 
     @Size(max = 500)
     private String avatar;

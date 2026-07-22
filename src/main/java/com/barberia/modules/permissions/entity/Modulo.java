@@ -12,5 +12,6 @@ public enum Modulo {
     FIDELIZACION,
     FINANZAS,
     REPORTES,
-    CONFIGURACION
+    CONFIGURACION,
+    COMISIONES
 }

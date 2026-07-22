@@ -28,10 +28,12 @@ public class Venta {
     @Column(name = "cliente_nombre", length = 200)
     private String clienteNombre;
 
-    @Column(name = "barbero_id", nullable = false)
+    // Nullable: no toda venta la atiende un barbero (ej. alguien compra o
+    // consume algo sin que sea por un servicio de barberia).
+    @Column(name = "barbero_id")
     private Integer barberoId;
 
-    @Column(name = "barbero_nombre", nullable = false, length = 200)
+    @Column(name = "barbero_nombre", length = 200)
     private String barberoNombre;
 
     @Column(name = "usuario_registro_id")
@@ -44,10 +46,13 @@ public class Venta {
     @Column(name = "tipo_venta", nullable = false, length = 10)
     private TipoVenta tipoVenta;
 
+    // Nullable: una solicitud de venta creada por un barbero no trae metodo
+    // de pago todavia -- lo asigna recepcion al aceptar y cobrar. Es un
+    // resumen: el unico metodo si se pago con uno solo, o MIXTO si se
+    // combinaron dos o mas (ver "pagos" para el desglose real).
     @Enumerated(EnumType.STRING)
-    @Column(name = "metodo_pago", nullable = false, length = 20)
-    @Builder.Default
-    private MetodoPago metodoPago = MetodoPago.EFECTIVO;
+    @Column(name = "metodo_pago", length = 20)
+    private MetodoPago metodoPago;
 
     @Column(name = "subtotal", nullable = false, precision = 10, scale = 2)
     private BigDecimal subtotal;
@@ -77,4 +82,8 @@ public class Venta {
     @OneToMany(mappedBy = "venta", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default
     private List<VentaItem> items = new ArrayList<>();
+
+    @OneToMany(mappedBy = "venta", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @Builder.Default
+    private List<VentaPago> pagos = new ArrayList<>();
 }

@@ -50,6 +50,7 @@ public class RolPermisoSeeder implements ApplicationRunner {
         add(lista, Rol.CASHIER, Modulo.FINANZAS, false, false, false);
         add(lista, Rol.CASHIER, Modulo.REPORTES, false, false, false);
         add(lista, Rol.CASHIER, Modulo.CONFIGURACION, false, false, false);
+        add(lista, Rol.CASHIER, Modulo.COMISIONES, true, true, false);
 
         add(lista, Rol.BARBER, Modulo.DASHBOARD, true, true, false);
         add(lista, Rol.BARBER, Modulo.VENTAS, true, true, false);
@@ -63,6 +64,10 @@ public class RolPermisoSeeder implements ApplicationRunner {
         add(lista, Rol.BARBER, Modulo.FINANZAS, false, false, false);
         add(lista, Rol.BARBER, Modulo.REPORTES, false, false, false);
         add(lista, Rol.BARBER, Modulo.CONFIGURACION, false, false, false);
+        // Solo lectura: ve su propia comision/propinas/descuentos, pero no
+        // puede registrar propinas/descuentos ni generar/pagar cortes --
+        // eso lo controla recepcion/cajero/admin (ver ComisionController).
+        add(lista, Rol.BARBER, Modulo.COMISIONES, true, false, false);
 
         add(lista, Rol.RECEPTION, Modulo.DASHBOARD, false, false, false);
         add(lista, Rol.RECEPTION, Modulo.VENTAS, false, false, false);
@@ -76,10 +81,17 @@ public class RolPermisoSeeder implements ApplicationRunner {
         add(lista, Rol.RECEPTION, Modulo.FINANZAS, false, false, false);
         add(lista, Rol.RECEPTION, Modulo.REPORTES, false, false, false);
         add(lista, Rol.RECEPTION, Modulo.CONFIGURACION, false, false, false);
+        add(lista, Rol.RECEPTION, Modulo.COMISIONES, true, true, false);
         return lista;
     }
 
+    // "Ver detalle" (por item de comisiones) no tenia equivalente antes de
+    // este metodo existir -- arranca en false para todos los roles
+    // configurables (CASHIER, RECEPTION, BARBER incluido, aunque a el no le
+    // aplica: ve el detalle de sus propias ventas por otro camino, ver
+    // RolPermisoService.puedeVerDetalleComisiones). Solo ADMIN lo tiene
+    // (bypass, no pasa por esta tabla).
     private void add(List<RolPermiso> lista, Rol rol, Modulo modulo, boolean ver, boolean editar, boolean eliminar) {
-        lista.add(RolPermiso.builder().rol(rol).modulo(modulo).puedeVer(ver).puedeEditar(editar).puedeEliminar(eliminar).build());
+        lista.add(RolPermiso.builder().rol(rol).modulo(modulo).puedeVer(ver).puedeEditar(editar).puedeEliminar(eliminar).puedeVerDetalle(false).build());
     }
 }

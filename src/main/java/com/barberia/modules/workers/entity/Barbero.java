@@ -33,6 +33,12 @@ public class Barbero {
     @Column(name = "especialidad", length = 200)
     private String especialidad;
 
+    // Columna heredada del modelo anterior (tasa fija por barbero). Ya no
+    // se usa para calcular comisiones -- ahora la tasa la define el
+    // administrador por cada servicio/producto/paquete del catalogo (ver
+    // ComisionServiceImpl). Se deja mapeada solo porque la columna sigue
+    // existiendo en la base de datos; no se expone en el formulario ni en
+    // las respuestas de la API.
     @Column(name = "porcentaje_comision", nullable = false, precision = 5, scale = 2)
     @Builder.Default
     private BigDecimal porcentajeComision = BigDecimal.valueOf(40.00);

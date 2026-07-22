@@ -4,6 +4,7 @@ import com.barberia.common.ApiResponse;
 import com.barberia.common.PageResponse;
 import com.barberia.modules.customers.dto.ClienteRequest;
 import com.barberia.modules.customers.dto.ClienteResponse;
+import com.barberia.modules.customers.dto.ClienteSelectorResponse;
 import com.barberia.modules.customers.service.ClienteService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -19,6 +20,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -42,6 +44,17 @@ public class ClienteController {
             "recompensas", new String[]{"recompensasDisponibles"},
             "ultimaVisita", new String[]{"ultimaVisita"}
     );
+
+    @Operation(summary = "Buscar clientes para un selector (ej. adjuntar uno a una solicitud de venta)",
+               description = "Versión mínima sin teléfono ni sellos de fidelización -- disponible para " +
+                       "cualquier usuario autenticado, sin depender del permiso del módulo Clientes " +
+                       "(igual que /api/workers/for-sale).")
+    @GetMapping("/for-sale")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<List<ClienteSelectorResponse>>> listarParaSelector(
+            @RequestParam(required = false) String search) {
+        return ResponseEntity.ok(ApiResponse.ok(clienteService.listarParaSelector(search)));
+    }
 
     @Operation(summary = "Listar clientes activos con búsqueda y filtros",
                description = "Todos los filtros son opcionales y se aplican del lado del servidor " +
@@ -78,6 +91,15 @@ public class ClienteController {
     @PreAuthorize("hasAnyRole('ADMIN','CASHIER','RECEPTION','BARBER')")
     public ResponseEntity<ApiResponse<ClienteResponse>> obtenerPorId(@PathVariable Integer id) {
         return ResponseEntity.ok(ApiResponse.ok(clienteService.obtenerPorId(id)));
+    }
+
+    @Operation(summary = "Código que le tocará al próximo cliente que se registre",
+               description = "Solo informativo (se muestra en el formulario de alta) -- el código real " +
+                       "definitivo es el que asigna la base de datos al guardar.")
+    @GetMapping("/next-code")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Integer>> proximoCodigo() {
+        return ResponseEntity.ok(ApiResponse.ok(clienteService.obtenerProximoCodigo()));
     }
 
     @Operation(summary = "Crear cliente")

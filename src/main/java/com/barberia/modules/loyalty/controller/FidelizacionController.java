@@ -2,8 +2,10 @@ package com.barberia.modules.loyalty.controller;
 
 import com.barberia.common.ApiResponse;
 import com.barberia.common.PageResponse;
+import com.barberia.modules.loyalty.dto.ActualizarReglaFidelizacionRequest;
 import com.barberia.modules.loyalty.dto.AgregarSelloRequest;
 import com.barberia.modules.loyalty.dto.FidelizacionCuentaResponse;
+import com.barberia.modules.loyalty.dto.ReglaFidelizacionResponse;
 import com.barberia.modules.loyalty.dto.SelloResponse;
 import com.barberia.modules.loyalty.entity.Recompensa;
 import com.barberia.modules.loyalty.service.impl.FidelizacionServiceImpl;
@@ -28,6 +30,10 @@ import java.util.Map;
 @Tag(name = "Fidelización", description = "Gestión de sellos, recompensas y fidelización de clientes")
 public class FidelizacionController {
 
+    // Igual criterio que ComisionController: configurar el catalogo (que
+    // aplica sello) es cosa de ADMIN/CASHIER/RECEPTION, no del barbero.
+    private static final String EDITAR = "hasAnyRole('ADMIN','CASHIER','RECEPTION')";
+
     private final FidelizacionServiceImpl fidelizacionBiz;
 
     @Operation(summary = "Ver cuenta de fidelización de un cliente")
@@ -46,6 +52,17 @@ public class FidelizacionController {
             @PathVariable Integer customerId,
             @Valid @RequestBody AgregarSelloRequest request) {
         return ResponseEntity.ok(ApiResponse.ok(fidelizacionBiz.agregarSello(customerId, request)));
+    }
+
+    @Operation(summary = "Quitar un sello de un cliente",
+               description = "Para corregir un sello agregado por error. Quita de a uno.")
+    @PostMapping("/customers/{customerId}/remove-stamp")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<SelloResponse>> quitarSello(
+            @PathVariable Integer customerId,
+            @RequestBody(required = false) Map<String, String> body) {
+        String motivo = body != null ? body.get("motivo") : null;
+        return ResponseEntity.ok(ApiResponse.ok(fidelizacionBiz.quitarSello(customerId, motivo)));
     }
 
     @Operation(summary = "Canjear recompensa de un cliente",
@@ -93,10 +110,11 @@ public class FidelizacionController {
     @GetMapping("/customers")
     @PreAuthorize("hasAnyRole('ADMIN','CASHIER','RECEPTION','BARBER')")
     public ResponseEntity<ApiResponse<PageResponse<FidelizacionCuentaResponse>>> todasLasCuentas(
+            @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
         PageRequest pageable = PageRequest.of(page, size, Sort.by("nombre").ascending());
-        return ResponseEntity.ok(ApiResponse.ok(fidelizacionBiz.listarTodasLasCuentas(pageable)));
+        return ResponseEntity.ok(ApiResponse.ok(fidelizacionBiz.listarTodasLasCuentas(pageable, search)));
     }
 
     @Operation(summary = "Historial de movimientos de fidelización de un cliente")
@@ -108,5 +126,52 @@ public class FidelizacionController {
             @RequestParam(defaultValue = "20") int size) {
         PageRequest pageable = PageRequest.of(page, size, Sort.by("fecha").descending());
         return ResponseEntity.ok(ApiResponse.ok(fidelizacionBiz.historialMovimientos(customerId, pageable)));
+    }
+
+    // ─── Reglas de fidelización por ítem del catálogo (no por cliente) ─────
+
+    @Operation(summary = "Listar reglas de fidelización de servicios")
+    @GetMapping("/rules/services")
+    @PreAuthorize(EDITAR)
+    public ResponseEntity<ApiResponse<List<ReglaFidelizacionResponse>>> listarReglasServicios() {
+        return ResponseEntity.ok(ApiResponse.ok(fidelizacionBiz.listarReglasServicios()));
+    }
+
+    @Operation(summary = "Definir si un servicio suma sello de fidelización")
+    @PatchMapping("/rules/services/{id}")
+    @PreAuthorize(EDITAR)
+    public ResponseEntity<ApiResponse<ReglaFidelizacionResponse>> actualizarReglaServicio(
+            @PathVariable Integer id, @Valid @RequestBody ActualizarReglaFidelizacionRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Regla actualizada", fidelizacionBiz.actualizarReglaServicio(id, request)));
+    }
+
+    @Operation(summary = "Listar reglas de fidelización de productos")
+    @GetMapping("/rules/products")
+    @PreAuthorize(EDITAR)
+    public ResponseEntity<ApiResponse<List<ReglaFidelizacionResponse>>> listarReglasProductos() {
+        return ResponseEntity.ok(ApiResponse.ok(fidelizacionBiz.listarReglasProductos()));
+    }
+
+    @Operation(summary = "Definir si un producto suma sello de fidelización")
+    @PatchMapping("/rules/products/{id}")
+    @PreAuthorize(EDITAR)
+    public ResponseEntity<ApiResponse<ReglaFidelizacionResponse>> actualizarReglaProducto(
+            @PathVariable Integer id, @Valid @RequestBody ActualizarReglaFidelizacionRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Regla actualizada", fidelizacionBiz.actualizarReglaProducto(id, request)));
+    }
+
+    @Operation(summary = "Listar reglas de fidelización de paquetes")
+    @GetMapping("/rules/packages")
+    @PreAuthorize(EDITAR)
+    public ResponseEntity<ApiResponse<List<ReglaFidelizacionResponse>>> listarReglasPaquetes() {
+        return ResponseEntity.ok(ApiResponse.ok(fidelizacionBiz.listarReglasPaquetes()));
+    }
+
+    @Operation(summary = "Definir si un paquete suma sello de fidelización")
+    @PatchMapping("/rules/packages/{id}")
+    @PreAuthorize(EDITAR)
+    public ResponseEntity<ApiResponse<ReglaFidelizacionResponse>> actualizarReglaPaquete(
+            @PathVariable Integer id, @Valid @RequestBody ActualizarReglaFidelizacionRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Regla actualizada", fidelizacionBiz.actualizarReglaPaquete(id, request)));
     }
 }

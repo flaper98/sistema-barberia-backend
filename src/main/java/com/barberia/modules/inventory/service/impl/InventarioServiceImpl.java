@@ -89,7 +89,7 @@ public class InventarioServiceImpl {
     private int calcularStockNuevo(TipoMovimiento tipo, int stockActual, int cantidad) {
         return switch (tipo) {
             case ENTRADA -> stockActual + cantidad;
-            case SALIDA -> {
+            case SALIDA, CONSUMO -> {
                 if (stockActual < cantidad) {
                     throw new BusinessException(
                             "Stock insuficiente. Disponible: " + stockActual + ", solicitado: " + cantidad);

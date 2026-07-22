@@ -34,6 +34,19 @@ public class Paquete {
     @Builder.Default
     private Boolean estado = true;
 
+    // % que se le paga de comision al barbero por cada venta de este
+    // paquete -- lo define el administrador desde Comisiones -> Tasas de
+    // comision.
+    @Column(name = "porcentaje_comision", nullable = false, precision = 5, scale = 2)
+    @Builder.Default
+    private BigDecimal porcentajeComision = BigDecimal.ZERO;
+
+    // Si una venta de este paquete suma sello de fidelizacion al cliente --
+    // lo define el administrador desde Fidelizacion -> Que aplica sello.
+    @Column(name = "aplica_fidelizacion", nullable = false, columnDefinition = "TINYINT(1) NOT NULL DEFAULT 1")
+    @Builder.Default
+    private Boolean aplicaFidelizacion = true;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

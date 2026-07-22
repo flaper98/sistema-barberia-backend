@@ -14,14 +14,24 @@ import java.util.List;
 @Setter
 public class VentaRequest {
 
-    @NotNull(message = "El cliente es obligatorio")
+    // Sin @NotNull a proposito: cuando un BARBER crea una solicitud
+    // pendiente no elige cliente ni metodo de pago -- eso lo asigna
+    // recepcion al confirmar. VentaServiceImpl.crear() exige ambos solo
+    // cuando quien crea NO es un barbero (venta directa COMPLETADA).
     private Integer clienteId;
 
-    @NotNull(message = "El ID del barbero es obligatorio")
+    // Sin @NotNull a proposito: no toda venta la atiende un barbero (ej.
+    // alguien compra o consume algo sin que sea por un servicio de
+    // barberia) -- ver VentaServiceImpl.crear().
     private Integer barberoId;
 
-    @NotNull(message = "El método de pago es obligatorio")
-    private MetodoPago metodoPago;
+    // Sin @NotEmpty a proposito: una solicitud de barbero llega sin pagos
+    // todavia. Para una venta directa (COMPLETADA) es obligatoria y la suma
+    // de los montos tiene que coincidir con el total -- ver
+    // VentaServiceImpl.crear(). Puede traer mas de uno (ej. mitad efectivo,
+    // mitad Yape).
+    @Valid
+    private List<PagoItemRequest> pagos;
 
     @DecimalMin(value = "0.00", message = "El descuento no puede ser negativo")
     private BigDecimal descuento = BigDecimal.ZERO;
@@ -54,5 +64,17 @@ public class VentaRequest {
         @NotNull
         @Min(value = 1, message = "La cantidad debe ser mayor a 0")
         private Integer cantidad;
+    }
+
+    @Getter
+    @Setter
+    public static class PagoItemRequest {
+
+        @NotNull(message = "El método de pago es obligatorio")
+        private MetodoPago metodoPago;
+
+        @NotNull(message = "El monto es obligatorio")
+        @DecimalMin(value = "0.01", message = "El monto tiene que ser mayor a 0")
+        private BigDecimal monto;
     }
 }

@@ -12,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -27,9 +28,13 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Integer>, JpaS
 
     boolean existsByBarberoIdAndIdNot(Integer barberoId, Integer id);
 
+    Optional<Usuario> findByBarberoIdAndEstadoTrue(Integer barberoId);
+
     Page<Usuario> findByEstadoTrue(Pageable pageable);
 
     Page<Usuario> findByRol(Rol rol, Pageable pageable);
+
+    List<Usuario> findByRolInAndEstadoTrue(List<Rol> roles);
 
     @Modifying
     @Query("UPDATE Usuario u SET u.ultimoAcceso = :fechaHora WHERE u.id = :id")

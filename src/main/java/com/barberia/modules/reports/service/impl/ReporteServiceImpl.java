@@ -171,14 +171,26 @@ public class ReporteServiceImpl {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public List<VentasPorBarberoDto> getVentasPorBarbero(LocalDate desde, LocalDate hasta, Integer barberoId) {
-        String sql = "SELECT b.id, CONCAT(b.nombre, ' ', b.apellido), b.porcentaje_comision, " +
-                "COUNT(v.id), COALESCE(SUM(v.total), 0), b.servicios_realizados " +
+        // La comision ya no es una tasa fija por barbero -- se pesa por la
+        // tasa de CADA item vendido (join a servicios/paquetes/productos
+        // segun el tipo de cada linea), igual que en ComisionServiceImpl.
+        String sql = "SELECT b.id, CONCAT(b.nombre, ' ', b.apellido), " +
+                "COUNT(DISTINCT v.id), COALESCE(SUM(vi.subtotal), 0), " +
+                "COALESCE(SUM(CASE WHEN vi.tipo = 'SERVICIO' THEN vi.subtotal * COALESCE(s.porcentaje_comision, 0) / 100 " +
+                "                   WHEN vi.tipo = 'PAQUETE'  THEN vi.subtotal * COALESCE(pk.porcentaje_comision, 0) / 100 " +
+                "                   WHEN vi.tipo = 'PRODUCTO' THEN vi.subtotal * COALESCE(p.porcentaje_comision, 0) / 100 " +
+                "                   ELSE 0 END), 0), " +
+                "b.servicios_realizados " +
                 "FROM barberos b " +
                 "LEFT JOIN ventas v ON v.barbero_id = b.id AND v.estado = 'COMPLETADA' " +
                 "AND DATE(v.fecha) BETWEEN :desde AND :hasta " +
+                "LEFT JOIN venta_items vi ON vi.venta_id = v.id " +
+                "LEFT JOIN servicios s ON s.id = vi.item_id AND vi.tipo = 'SERVICIO' " +
+                "LEFT JOIN paquetes pk ON pk.id = vi.item_id AND vi.tipo = 'PAQUETE' " +
+                "LEFT JOIN productos p ON p.id = vi.item_id AND vi.tipo = 'PRODUCTO' " +
                 (barberoId != null ? "WHERE b.id = :barberoId " : "") +
-                "GROUP BY b.id, b.nombre, b.apellido, b.porcentaje_comision, b.servicios_realizados " +
-                "ORDER BY SUM(v.total) DESC";
+                "GROUP BY b.id, b.nombre, b.apellido, b.servicios_realizados " +
+                "ORDER BY COALESCE(SUM(vi.subtotal), 0) DESC";
 
         var query = em.createNativeQuery(sql)
                 .setParameter("desde", desde)
@@ -189,15 +201,14 @@ public class ReporteServiceImpl {
 
         List<VentasPorBarberoDto> list = new ArrayList<>();
         for (Object[] r : rows) {
-            BigDecimal ingresos = r[4] != null ? (BigDecimal) r[4] : BigDecimal.ZERO;
-            BigDecimal pct = r[2] != null ? (BigDecimal) r[2] : BigDecimal.ZERO;
-            BigDecimal comision = ingresos.multiply(pct)
-                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            BigDecimal ingresos = r[3] != null ? (BigDecimal) r[3] : BigDecimal.ZERO;
+            BigDecimal comision = r[4] != null
+                    ? ((BigDecimal) r[4]).setScale(2, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO;
             list.add(VentasPorBarberoDto.builder()
                     .barberoId(((Number) r[0]).intValue())
                     .barberoNombre((String) r[1])
-                    .porcentajeComision(pct)
-                    .totalVentas(((Number) r[3]).longValue())
+                    .totalVentas(((Number) r[2]).longValue())
                     .ingresos(ingresos)
                     .comision(comision)
                     .serviciosRealizados(r[5] != null ? ((Number) r[5]).longValue() : 0L)

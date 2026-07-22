@@ -5,7 +5,6 @@ import com.barberia.common.PageResponse;
 import com.barberia.modules.workers.dto.BarberoRequest;
 import com.barberia.modules.workers.dto.BarberoResponse;
 import com.barberia.modules.workers.dto.BarberoSelectorResponse;
-import com.barberia.modules.workers.dto.BarberoSummaryResponse;
 import com.barberia.modules.workers.service.BarberoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -14,13 +13,11 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -100,19 +97,5 @@ public class BarberoController {
     public ResponseEntity<ApiResponse<Void>> eliminar(@PathVariable Integer id) {
         barberoService.eliminar(id);
         return ResponseEntity.ok(ApiResponse.ok("Barbero deshabilitado correctamente"));
-    }
-
-    @Operation(summary = "Resumen de ingresos y comisiones por barbero",
-               description = "Filtra por rango de fechas. Por defecto el mes actual.")
-    @GetMapping("/{id}/summary")
-    @PreAuthorize("hasRole('ADMIN') or " +
-                  "(hasRole('BARBER') and #id == authentication.principal.usuario.barberoId)")
-    public ResponseEntity<ApiResponse<BarberoSummaryResponse>> resumen(
-            @PathVariable Integer id,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta) {
-        if (desde == null) desde = LocalDate.now().withDayOfMonth(1);
-        if (hasta == null) hasta = LocalDate.now();
-        return ResponseEntity.ok(ApiResponse.ok(barberoService.obtenerResumen(id, desde, hasta)));
     }
 }

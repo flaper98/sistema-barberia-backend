@@ -12,6 +12,8 @@ import com.barberia.modules.appointments.entity.EstadoCita;
 import com.barberia.modules.appointments.mapper.CitaMapper;
 import com.barberia.modules.appointments.repository.CitaRepository;
 import com.barberia.modules.customers.repository.ClienteRepository;
+import com.barberia.modules.notifications.entity.TipoNotificacion;
+import com.barberia.modules.notifications.service.NotificacionService;
 import com.barberia.modules.workers.repository.BarberoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +24,7 @@ import org.springframework.util.CollectionUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Slf4j
@@ -29,10 +32,14 @@ import java.util.List;
 @RequiredArgsConstructor
 public class CitaServiceImpl {
 
+    private static final DateTimeFormatter FORMATO_FECHA = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+    private static final DateTimeFormatter FORMATO_HORA = DateTimeFormatter.ofPattern("HH:mm");
+
     private final CitaRepository citaRepository;
     private final ClienteRepository clienteRepository;
     private final BarberoRepository barberoRepository;
     private final CitaMapper citaMapper;
+    private final NotificacionService notificacionService;
 
     @Transactional(readOnly = true)
     public PageResponse<CitaResponse> listar(LocalDate fecha, EstadoCita estado, Pageable pageable) {
@@ -98,6 +105,12 @@ public class CitaServiceImpl {
 
         Cita saved = citaRepository.save(cita);
         log.info("Cita creada ID={} barbero={} fecha={}", saved.getId(), barberoNombre, request.getFecha());
+
+        notificacionService.notificarBarbero(saved.getBarberoId(), TipoNotificacion.CITA_ASIGNADA,
+                "Nueva cita: " + clienteNombre + " el " + request.getFecha().format(FORMATO_FECHA)
+                        + " a las " + request.getHora().format(FORMATO_HORA),
+                "CITA", saved.getId());
+
         return citaMapper.toResponse(saved);
     }
 
@@ -110,6 +123,8 @@ public class CitaServiceImpl {
         }
 
         verificarDisponibilidad(request.getFecha(), request.getBarberoId(), request.getHora(), id);
+
+        Integer barberoAnterior = cita.getBarberoId();
 
         cita.setBarberoId(request.getBarberoId());
         cita.setFecha(request.getFecha());
@@ -135,6 +150,17 @@ public class CitaServiceImpl {
 
         Cita saved = citaRepository.save(cita);
         log.info("Cita actualizada ID={}", id);
+
+        // Solo se notifica si el barbero asignado realmente cambio (incluye
+        // el caso "sin asignar -> asignado") -- si se guarda sin tocar el
+        // barbero no tiene sentido volver a avisarle.
+        if (saved.getBarberoId() != null && !saved.getBarberoId().equals(barberoAnterior)) {
+            notificacionService.notificarBarbero(saved.getBarberoId(), TipoNotificacion.CITA_ASIGNADA,
+                    "Se te asignó una cita: " + saved.getClienteNombre() + " el "
+                            + saved.getFecha().format(FORMATO_FECHA) + " a las " + saved.getHora().format(FORMATO_HORA),
+                    "CITA", saved.getId());
+        }
+
         return citaMapper.toResponse(saved);
     }
 

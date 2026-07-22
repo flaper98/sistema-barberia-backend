@@ -13,6 +13,5 @@ public class VentasPorBarberoDto {
     private final Long totalVentas;
     private final BigDecimal ingresos;
     private final BigDecimal comision;
-    private final BigDecimal porcentajeComision;
     private final Long serviciosRealizados;
 }
