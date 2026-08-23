@@ -14,6 +14,9 @@ import com.barberia.modules.finance.entity.CategoriaFinanza;
 import com.barberia.modules.finance.entity.Finanza;
 import com.barberia.modules.finance.entity.TipoFinanza;
 import com.barberia.modules.finance.repository.FinanzaRepository;
+import com.barberia.modules.inventory.dto.MovimientoRequest;
+import com.barberia.modules.inventory.entity.TipoMovimiento;
+import com.barberia.modules.inventory.service.impl.InventarioServiceImpl;
 import com.barberia.modules.loyalty.dto.AgregarSelloRequest;
 import com.barberia.modules.loyalty.service.impl.FidelizacionServiceImpl;
 import com.barberia.modules.notifications.entity.TipoNotificacion;
@@ -29,7 +32,9 @@ import com.barberia.modules.sales.mapper.VentaMapper;
 import com.barberia.modules.sales.repository.VentaRepository;
 import com.barberia.modules.services.entity.Paquete;
 import com.barberia.modules.services.entity.Servicio;
+import com.barberia.modules.services.entity.ServicioCortesia;
 import com.barberia.modules.services.repository.PaqueteRepository;
+import com.barberia.modules.services.repository.ServicioCortesiaRepository;
 import com.barberia.modules.services.repository.ServicioRepository;
 import com.barberia.modules.users.entity.Rol;
 import com.barberia.modules.workers.repository.BarberoRepository;
@@ -61,10 +66,12 @@ public class VentaServiceImpl {
     private final ClienteRepository clienteRepository;
     private final ProductoRepository productoRepository;
     private final ServicioRepository servicioRepository;
+    private final ServicioCortesiaRepository servicioCortesiaRepository;
     private final PaqueteRepository paqueteRepository;
     private final CitaRepository citaRepository;
     private final FinanzaRepository finanzaRepository;
     private final FidelizacionServiceImpl fidelizacionService;
+    private final InventarioServiceImpl inventarioService;
     private final VentaMapper ventaMapper;
     private final AuditPublisher auditPublisher;
     private final NotificacionService notificacionService;
@@ -272,6 +279,7 @@ public class VentaServiceImpl {
 
         if (saved.getEstado() == EstadoVenta.COMPLETADA) {
             registrarIngresoAutomatico(saved);
+            procesarCortesias(saved);
             int unidadesFidelizacion = contarUnidadesFidelizacion(saved.getItems());
             if (saved.getClienteId() != null && unidadesFidelizacion > 0) {
                 AgregarSelloRequest selloRequest = new AgregarSelloRequest();
@@ -346,6 +354,7 @@ public class VentaServiceImpl {
         }
 
         registrarIngresoAutomatico(saved);
+        procesarCortesias(saved);
 
         int unidadesFidelizacion = contarUnidadesFidelizacion(saved.getItems());
         if (saved.getClienteId() != null && unidadesFidelizacion > 0) {
@@ -519,17 +528,23 @@ public class VentaServiceImpl {
     // El barbero puede agregar/quitar items de SU PROPIA solicitud mientras
     // siga PENDIENTE (ej. el cliente pide un servicio mas a mitad de la
     // atencion) -- no puede tocar cliente, metodo de pago ni barbero (para
-    // eso existe actualizar(), solo ADMIN), ni editar una solicitud ajena
-    // o que recepcion ya cobro (ver @PreAuthorize en el controller para el
-    // rol, y los guards de abajo para dueño/estado).
+    // eso existe actualizar(), solo ADMIN), ni editar una solicitud ajena.
+    // ADMIN/CASHIER/RECEPTION pueden editar los items de CUALQUIER solicitud
+    // pendiente (ej. al aceptar y cobrar, si hay que sumar o sacar algo antes
+    // de cerrar el cobro) -- para ellos no aplica el chequeo de dueño, ya
+    // tienen la misma potestad sobre confirmar()/anular() de cualquier
+    // solicitud (ver @PreAuthorize en el controller para el rol).
     @Transactional
     public VentaResponse actualizarItemsPropios(Integer id, VentaItemsUpdateRequest request) {
         Venta venta = findOrThrow(id);
 
         CustomUserDetails userDetails = getCurrentUser();
-        Integer miBarberoId = userDetails != null ? userDetails.getUsuario().getBarberoId() : null;
-        if (miBarberoId == null || !miBarberoId.equals(venta.getBarberoId())) {
-            throw new BusinessException("No podés editar la solicitud de otro barbero");
+        boolean esBarbero = userDetails != null && "BARBER".equals(userDetails.getRol());
+        if (esBarbero) {
+            Integer miBarberoId = userDetails.getUsuario().getBarberoId();
+            if (miBarberoId == null || !miBarberoId.equals(venta.getBarberoId())) {
+                throw new BusinessException("No podés editar la solicitud de otro barbero");
+            }
         }
         if (venta.getEstado() != EstadoVenta.PENDIENTE) {
             throw new BusinessException("Solo se puede editar mientras está pendiente de cobro");
@@ -690,6 +705,42 @@ public class VentaServiceImpl {
     // fidelizacion esta activada (ver Servicio/Producto/Paquete#aplicaFidelizacion,
     // editable desde Fidelizacion -> Que aplica sello) -- ej. un corte y un
     // alisado (ambos activados) en la misma venta son 2, no 1.
+    // Por cada servicio vendido que tenga cortesia configurada (ver
+    // ServicioCortesia / pantalla Servicios -> "Cortesía incluida"),
+    // descuenta el stock del producto de cortesia automaticamente -- no
+    // cobra nada ni afecta la comision del barbero, es un costo del
+    // negocio. Si a algun producto de cortesia le falta stock (o esta
+    // inactivo/eliminado), NO bloquea la venta (no tiene sentido no poder
+    // vender un corte por quedarse sin la bebida de regalo) -- se valida
+    // ACA, antes de llamar a inventarioService, a proposito: si dejaramos
+    // que registrarMovimiento tire la excepcion y la agarraramos con un
+    // try/catch aca, Spring igual marca la transaccion de esta venta como
+    // rollback-only (es otro bean @Transactional, no importa que la
+    // excepcion se atrape afuera) y la venta entera fallaria igual.
+    private void procesarCortesias(Venta venta) {
+        for (VentaItem item : venta.getItems()) {
+            if (item.getTipo() != TipoItem.SERVICIO) continue;
+            List<ServicioCortesia> cortesias = servicioCortesiaRepository.findByServicioId(item.getItemId());
+            for (ServicioCortesia cortesia : cortesias) {
+                int cantidadNecesaria = cortesia.getCantidad() * item.getCantidad();
+                Producto producto = productoRepository.findById(cortesia.getProductoId()).orElse(null);
+                if (producto == null || !Boolean.TRUE.equals(producto.getEstado())
+                        || producto.getStockActual() < cantidadNecesaria) {
+                    log.warn("No se pudo descontar la cortesía (productoId={}) de la venta ID={}: " +
+                            "producto inactivo/eliminado o stock insuficiente", cortesia.getProductoId(), venta.getId());
+                    continue;
+                }
+                MovimientoRequest movRequest = new MovimientoRequest();
+                movRequest.setProductoId(cortesia.getProductoId());
+                movRequest.setTipoMovimiento(TipoMovimiento.CORTESIA);
+                movRequest.setCantidad(cantidadNecesaria);
+                movRequest.setMotivo("Cortesía por " + item.getNombre() + " - Venta #" + venta.getId());
+                movRequest.setVentaId(venta.getId());
+                inventarioService.registrarMovimiento(movRequest);
+            }
+        }
+    }
+
     private int contarUnidadesFidelizacion(List<VentaItem> items) {
         int total = 0;
         for (VentaItem item : items) {

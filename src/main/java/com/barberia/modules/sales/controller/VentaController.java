@@ -117,13 +117,15 @@ public class VentaController {
         return ResponseEntity.ok(ApiResponse.ok("Venta actualizada", ventaBiz.actualizar(id, request)));
     }
 
-    @Operation(summary = "Editar los ítems de la propia solicitud de venta (BARBER)",
-               description = "Permite al barbero agregar o quitar servicios/productos de una solicitud " +
-                       "PENDIENTE que él mismo creó (ej. el cliente pide algo más a mitad de la atención), " +
-                       "mientras recepción todavía no la aceptó y cobró. No permite cambiar cliente, método " +
-                       "de pago ni barbero -- para eso está PUT /{id} (solo ADMIN).")
+    @Operation(summary = "Editar los ítems de una solicitud de venta pendiente",
+               description = "El barbero puede agregar o quitar servicios/productos de una solicitud PENDIENTE " +
+                       "que él mismo creó (ej. el cliente pide algo más a mitad de la atención). ADMIN/CASHIER/" +
+                       "RECEPTION pueden hacer lo mismo sobre cualquier solicitud pendiente, ej. al aceptar y " +
+                       "cobrar, si hay que sumar o sacar algo antes de cerrar el cobro. Mientras no esté " +
+                       "PENDIENTE ya no se puede. No permite cambiar cliente, método de pago ni barbero -- " +
+                       "para eso está PUT /{id} (solo ADMIN).")
     @PatchMapping("/{id}/items")
-    @PreAuthorize("hasRole('BARBER')")
+    @PreAuthorize("hasAnyRole('ADMIN','CASHIER','RECEPTION','BARBER')")
     public ResponseEntity<ApiResponse<VentaResponse>> actualizarItems(
             @PathVariable Integer id,
             @Valid @RequestBody VentaItemsUpdateRequest request) {

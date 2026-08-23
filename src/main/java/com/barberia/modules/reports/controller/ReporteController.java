@@ -37,27 +37,36 @@ public class ReporteController {
     }
 
     @Operation(summary = "Reporte de ventas en un rango de fechas",
-               description = "Filtra por estado: COMPLETADA, ANULADA")
+               description = "Filtra por estado: COMPLETADA, ANULADA. Un BARBER siempre ve solo sus propias ventas, sin importar el barberoId enviado")
     @GetMapping("/sales")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<List<VentaReporteDto>>> ventas(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
             @RequestParam(required = false) String estado,
-            @RequestParam(required = false) Integer barberoId) {
+            @RequestParam(required = false) Integer barberoId,
+            @AuthenticationPrincipal CustomUserDetails principal) {
+        Integer scopedBarberoId = "BARBER".equals(principal.getRol())
+                ? principal.getUsuario().getBarberoId()
+                : barberoId;
         return ResponseEntity.ok(ApiResponse.ok(
-                reporteService.getReporteVentas(desde, hasta, estado, barberoId)));
+                reporteService.getReporteVentas(desde, hasta, estado, scopedBarberoId)));
     }
 
-    @Operation(summary = "Resumen de ventas agrupado por barbero en un rango de fechas")
+    @Operation(summary = "Resumen de ventas agrupado por barbero en un rango de fechas",
+               description = "Un BARBER siempre ve solo su propia fila, sin importar el barberoId enviado")
     @GetMapping("/sales-by-worker")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<List<VentasPorBarberoDto>>> ventasPorBarbero(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
-            @RequestParam(required = false) Integer barberoId) {
+            @RequestParam(required = false) Integer barberoId,
+            @AuthenticationPrincipal CustomUserDetails principal) {
+        Integer scopedBarberoId = "BARBER".equals(principal.getRol())
+                ? principal.getUsuario().getBarberoId()
+                : barberoId;
         return ResponseEntity.ok(ApiResponse.ok(
-                reporteService.getVentasPorBarbero(desde, hasta, barberoId)));
+                reporteService.getVentasPorBarbero(desde, hasta, scopedBarberoId)));
     }
 
     @Operation(summary = "Top N servicios más vendidos en un rango de fechas",
@@ -77,29 +86,38 @@ public class ReporteController {
                 reporteService.getTopServicios(desde, hasta, limit, scopedBarberoId)));
     }
 
-    @Operation(summary = "Top N productos más vendidos en un rango de fechas")
+    @Operation(summary = "Top N productos más vendidos en un rango de fechas",
+               description = "Un BARBER siempre ve solo sus propios productos vendidos, sin importar el barberoId enviado")
     @GetMapping("/top-products")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<List<TopProductoDto>>> topProductos(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
             @RequestParam(defaultValue = "10") int limit,
-            @RequestParam(required = false) Integer barberoId) {
+            @RequestParam(required = false) Integer barberoId,
+            @AuthenticationPrincipal CustomUserDetails principal) {
+        Integer scopedBarberoId = "BARBER".equals(principal.getRol())
+                ? principal.getUsuario().getBarberoId()
+                : barberoId;
         return ResponseEntity.ok(ApiResponse.ok(
-                reporteService.getTopProductos(desde, hasta, limit, barberoId)));
+                reporteService.getTopProductos(desde, hasta, limit, scopedBarberoId)));
     }
 
     @Operation(summary = "Reporte de citas en un rango de fechas",
-               description = "Filtra por estado: PENDIENTE, CONFIRMADA, ATENDIDA, CANCELADA, NO_ASISTIO")
+               description = "Filtra por estado: PENDIENTE, CONFIRMADA, ATENDIDA, CANCELADA, NO_ASISTIO. Un BARBER siempre ve solo sus propias citas, sin importar el barberoId enviado")
     @GetMapping("/appointments")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<List<CitaReporteDto>>> citas(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
             @RequestParam(required = false) String estado,
-            @RequestParam(required = false) Integer barberoId) {
+            @RequestParam(required = false) Integer barberoId,
+            @AuthenticationPrincipal CustomUserDetails principal) {
+        Integer scopedBarberoId = "BARBER".equals(principal.getRol())
+                ? principal.getUsuario().getBarberoId()
+                : barberoId;
         return ResponseEntity.ok(ApiResponse.ok(
-                reporteService.getReporteCitas(desde, hasta, estado, barberoId)));
+                reporteService.getReporteCitas(desde, hasta, estado, scopedBarberoId)));
     }
 
     @Operation(summary = "Reporte de movimientos de inventario en un rango de fechas",

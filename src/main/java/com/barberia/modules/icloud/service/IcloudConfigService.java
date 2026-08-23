@@ -40,9 +40,9 @@ public class IcloudConfigService {
         }
 
         IcloudConfig config = obtenerEntidad();
-        config.setUsername(request.getUsername());
+        config.setUsername(request.getUsername() != null ? request.getUsername().trim() : null);
         if (request.getAppPassword() != null && !request.getAppPassword().isBlank()) {
-            config.setAppPasswordEncrypted(cryptoService.encriptar(request.getAppPassword()));
+            config.setAppPasswordEncrypted(cryptoService.encriptar(request.getAppPassword().trim()));
             config.setAddressbookHomeUrl(null); // credenciales nuevas -> hay que redescubrir
         }
         config.setEnabled(request.getEnabled());

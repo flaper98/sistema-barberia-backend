@@ -5,9 +5,10 @@ import lombok.Getter;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Getter
-@Builder
+@Builder(toBuilder = true)
 public class ServicioResponse {
 
     private final Integer id;
@@ -20,4 +21,5 @@ public class ServicioResponse {
     private final Boolean estado;
     private final LocalDateTime createdAt;
     private final LocalDateTime updatedAt;
+    private final List<ServicioCortesiaDto> cortesias;
 }

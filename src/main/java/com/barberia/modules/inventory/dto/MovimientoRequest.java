@@ -23,4 +23,8 @@ public class MovimientoRequest {
 
     @Size(max = 255, message = "El motivo no puede superar 255 caracteres")
     private String motivo;
+
+    // Opcional: si el movimiento viene de una venta (ej. CORTESIA), para
+    // trazabilidad -- no se expone en el formulario manual de Inventario.
+    private Integer ventaId;
 }

@@ -1,11 +1,13 @@
 package com.barberia.modules.services.dto;
 
 import com.barberia.modules.services.entity.CategoriaServicio;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Getter
 @Setter
@@ -30,4 +32,10 @@ public class ServicioRequest {
 
     @Size(max = 2000, message = "La descripción no puede superar 2000 caracteres")
     private String descripcion;
+
+    // Opcional: productos que se entregan gratis al vender este servicio
+    // (ej. una cerveza de cortesía con un corte premium) -- si viene null o
+    // vacío, el servicio queda sin cortesía configurada.
+    @Valid
+    private List<ServicioCortesiaDto> cortesias;
 }

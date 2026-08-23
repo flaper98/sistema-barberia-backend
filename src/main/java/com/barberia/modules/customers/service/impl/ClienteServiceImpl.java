@@ -16,6 +16,7 @@ import com.barberia.modules.customers.service.ClienteService;
 import com.barberia.common.carddav.CardDavContactData;
 import com.barberia.modules.google.service.GoogleSyncService;
 import com.barberia.modules.icloud.service.IcloudSyncService;
+import com.barberia.modules.whatsapp.service.WhatsAppMessagingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -40,6 +41,7 @@ public class ClienteServiceImpl implements ClienteService {
     private final AuditPublisher auditPublisher;
     private final IcloudSyncService icloudSyncService;
     private final GoogleSyncService googleSyncService;
+    private final WhatsAppMessagingService whatsAppMessagingService;
 
     @Override
     @Transactional(readOnly = true)
@@ -120,6 +122,7 @@ public class ClienteServiceImpl implements ClienteService {
                 cliente.getTelefono(), cliente.getCorreo());
         icloudSyncService.sincronizarClienteAsync(contactoDav);
         googleSyncService.sincronizarClienteAsync(contactoDav);
+        whatsAppMessagingService.enviarBienvenidaAsync(cliente.getId(), cliente.getNombre(), cliente.getTelefono());
 
         return clienteMapper.toResponse(cliente);
     }

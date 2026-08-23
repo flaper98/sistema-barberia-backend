@@ -67,6 +67,7 @@ public class InventarioServiceImpl {
                 .motivo(request.getMotivo())
                 .usuarioId(userDetails != null ? userDetails.getId() : null)
                 .usuarioNombre(userDetails != null ? userDetails.getNombreCompleto() : "Sistema")
+                .ventaId(request.getVentaId())
                 .build();
 
         movimiento = movimientoRepository.save(movimiento);
@@ -89,7 +90,7 @@ public class InventarioServiceImpl {
     private int calcularStockNuevo(TipoMovimiento tipo, int stockActual, int cantidad) {
         return switch (tipo) {
             case ENTRADA -> stockActual + cantidad;
-            case SALIDA, CONSUMO -> {
+            case SALIDA, CONSUMO, CORTESIA -> {
                 if (stockActual < cantidad) {
                     throw new BusinessException(
                             "Stock insuficiente. Disponible: " + stockActual + ", solicitado: " + cantidad);
