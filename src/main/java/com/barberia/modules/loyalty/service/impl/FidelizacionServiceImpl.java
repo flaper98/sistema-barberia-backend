@@ -13,11 +13,14 @@ import com.barberia.modules.loyalty.dto.AgregarSelloRequest;
 import com.barberia.modules.loyalty.dto.FidelizacionCuentaResponse;
 import com.barberia.modules.loyalty.dto.ReglaFidelizacionResponse;
 import com.barberia.modules.loyalty.dto.SelloResponse;
+import com.barberia.modules.loyalty.dto.CanjearRecompensaRequest;
+import com.barberia.modules.loyalty.dto.RecompensaRequest;
 import com.barberia.modules.loyalty.entity.FidelizacionConfig;
 import com.barberia.modules.loyalty.entity.FidelizacionCuenta;
 import com.barberia.modules.loyalty.entity.FidelizacionMovimiento;
 import com.barberia.modules.loyalty.entity.Recompensa;
 import com.barberia.modules.loyalty.entity.TipoMovimientoFidelizacion;
+import com.barberia.modules.loyalty.entity.TipoRecompensa;
 import com.barberia.modules.loyalty.repository.FidelizacionConfigRepository;
 import com.barberia.modules.loyalty.repository.FidelizacionCuentaRepository;
 import com.barberia.modules.loyalty.repository.FidelizacionMovimientoRepository;
@@ -68,8 +71,7 @@ public class FidelizacionServiceImpl {
                 .orElseThrow(() -> new ResourceNotFoundException("Cliente", clienteId));
 
         FidelizacionConfig config = obtenerConfig();
-        FidelizacionCuenta cuenta = cuentaRepository.findByClienteId(clienteId)
-                .orElseGet(() -> cuentaVacia(clienteId, config));
+        FidelizacionCuenta cuenta = obtenerOCrearCuenta(clienteId, config);
 
         return toResponse(cuenta, cliente.getNombreCompleto(), config.getDescripcionRecompensa());
     }
@@ -200,9 +202,15 @@ public class FidelizacionServiceImpl {
     }
 
     @Transactional
-    public SelloResponse canjearRecompensa(Integer clienteId, String motivo) {
+    public SelloResponse canjearRecompensa(Integer clienteId, CanjearRecompensaRequest request) {
         Cliente cliente = clienteRepository.findById(clienteId)
                 .orElseThrow(() -> new ResourceNotFoundException("Cliente", clienteId));
+
+        Recompensa recompensa = recompensaRepository.findById(request.getRecompensaId())
+                .orElseThrow(() -> new ResourceNotFoundException("Recompensa", request.getRecompensaId()));
+        if (!Boolean.TRUE.equals(recompensa.getActivo())) {
+            throw new BusinessException("El premio seleccionado ya no está disponible");
+        }
 
         FidelizacionCuenta cuenta = cuentaRepository.findByClienteId(clienteId)
                 .orElseThrow(() -> new BusinessException("El cliente no tiene recompensas disponibles para canjear"));
@@ -219,32 +227,159 @@ public class FidelizacionServiceImpl {
 
         sincronizarCliente(cliente, cuenta);
 
+        String detalle = request.getMotivo() != null && !request.getMotivo().isBlank()
+                ? request.getMotivo().trim() : "Canje de premio";
+        String motivoMovimiento = detalle + ": " + recompensa.getDescripcion();
+        if (motivoMovimiento.length() > 255) {
+            motivoMovimiento = motivoMovimiento.substring(0, 255);
+        }
+
         movimientoRepository.save(FidelizacionMovimiento.builder()
                 .cuentaId(cuenta.getId())
                 .clienteId(clienteId)
                 .clienteNombre(cliente.getNombreCompleto())
                 .tipo(TipoMovimientoFidelizacion.CANJEADO)
                 .cantidad(cuenta.getSellosNecesarios())
-                .motivo(motivo)
+                .motivo(motivoMovimiento)
                 .build());
 
         auditPublisher.publish(AuditAction.REWARD_REDEEM, "SISTEMA",
-                "CLIENTE", clienteId.toString(), "Recompensa canjeada. Motivo: " + motivo);
-        log.info("Recompensa canjeada para cliente ID={}", clienteId);
+                "CLIENTE", clienteId.toString(), "Premio canjeado: " + recompensa.getDescripcion());
+        log.info("Premio '{}' canjeado para cliente ID={}", recompensa.getDescripcion(), clienteId);
 
         return SelloResponse.builder()
                 .sellosActuales(cuenta.getSellosActuales())
                 .sellosNecesarios(cuenta.getSellosNecesarios())
                 .recompensasDisponibles(cuenta.getRecompensasDisponibles())
                 .nuevaRecompensaObtenida(false)
-                .mensaje("Recompensa canjeada exitosamente. Recompensas restantes: "
+                .mensaje("Premio '" + recompensa.getDescripcion()
+                        + "' canjeado. Premios restantes: "
                         + cuenta.getRecompensasDisponibles())
                 .build();
     }
 
+    @Transactional
+    public SelloResponse entregarPremioDesdeVenta(Integer clienteId, CanjearRecompensaRequest request) {
+        Cliente cliente = clienteRepository.findById(clienteId)
+                .orElseThrow(() -> new ResourceNotFoundException("Cliente", clienteId));
+
+        Recompensa recompensa = recompensaRepository.findById(request.getRecompensaId())
+                .orElseThrow(() -> new ResourceNotFoundException("Recompensa", request.getRecompensaId()));
+        if (!Boolean.TRUE.equals(recompensa.getActivo())) {
+            throw new BusinessException("El premio seleccionado ya no está disponible");
+        }
+
+        FidelizacionCuenta cuenta = cuentaRepository.findByClienteId(clienteId)
+                .orElseThrow(() -> new BusinessException("El cliente no tiene recompensas disponibles para entregar"));
+
+        if (cuenta.getRecompensasDisponibles() <= 0) {
+            throw new BusinessException("El cliente no tiene recompensas disponibles para entregar");
+        }
+
+        cuenta.setRecompensasDisponibles(cuenta.getRecompensasDisponibles() - 1);
+        cuenta.setRecompensasCanjeadas(cuenta.getRecompensasCanjeadas() + 1);
+        cuenta.setDescripcionRecompensa(null);
+        cuenta.setUltimoMovimiento(LocalDateTime.now());
+        cuenta = cuentaRepository.save(cuenta);
+
+        sincronizarCliente(cliente, cuenta);
+
+        String motivoMovimiento = "Entregado en venta: " + recompensa.getDescripcion();
+        if (motivoMovimiento.length() > 255) {
+            motivoMovimiento = motivoMovimiento.substring(0, 255);
+        }
+
+        movimientoRepository.save(FidelizacionMovimiento.builder()
+                .cuentaId(cuenta.getId())
+                .clienteId(clienteId)
+                .clienteNombre(cliente.getNombreCompleto())
+                .tipo(TipoMovimientoFidelizacion.CANJEADO)
+                .cantidad(cuenta.getSellosNecesarios())
+                .motivo(motivoMovimiento)
+                .build());
+
+        auditPublisher.publish(AuditAction.REWARD_REDEEM, "SISTEMA",
+                "CLIENTE", clienteId.toString(), "Premio entregado en venta: " + recompensa.getDescripcion());
+        log.info("Premio '{}' entregado en venta para cliente ID={}", recompensa.getDescripcion(), clienteId);
+
+        return SelloResponse.builder()
+                .sellosActuales(cuenta.getSellosActuales())
+                .sellosNecesarios(cuenta.getSellosNecesarios())
+                .recompensasDisponibles(cuenta.getRecompensasDisponibles())
+                .nuevaRecompensaObtenida(false)
+                .mensaje("Premio '" + recompensa.getDescripcion()
+                        + "' entregado. Premios restantes: "
+                        + cuenta.getRecompensasDisponibles())
+                .build();
+    }
+
+    @Transactional
+    public void seleccionarPremio(Integer clienteId, Integer recompensaId) {
+        Cliente cliente = clienteRepository.findById(clienteId)
+                .orElseThrow(() -> new ResourceNotFoundException("Cliente", clienteId));
+
+        Recompensa recompensa = recompensaRepository.findById(recompensaId)
+                .orElseThrow(() -> new ResourceNotFoundException("Recompensa", recompensaId));
+        if (!Boolean.TRUE.equals(recompensa.getActivo())) {
+            throw new BusinessException("El premio seleccionado ya no está disponible");
+        }
+
+        FidelizacionCuenta cuenta = obtenerOCrearCuenta(clienteId, obtenerConfig());
+        cuenta.setDescripcionRecompensa(recompensa.getDescripcion());
+        cuenta.setUltimoMovimiento(LocalDateTime.now());
+        cuentaRepository.save(cuenta);
+
+        sincronizarCliente(cliente, cuenta);
+        log.info("Premio '{}' seleccionado para cliente ID={}", recompensa.getDescripcion(), clienteId);
+    }
+
     @Transactional(readOnly = true)
     public List<Recompensa> listarRecompensas() {
-        return recompensaRepository.findByActivoTrue();
+        return recompensaRepository.findByActivoTrueOrderByDescripcionAsc();
+    }
+
+    @Transactional(readOnly = true)
+    public List<Recompensa> listarTodasLasRecompensas() {
+        return recompensaRepository.findAllByOrderByDescripcionAsc();
+    }
+
+    @Transactional
+    public Recompensa crearRecompensa(RecompensaRequest request) {
+        FidelizacionConfig config = obtenerConfig();
+        Recompensa recompensa = recompensaRepository.save(Recompensa.builder()
+                .tipo(TipoRecompensa.PRODUCTO_GRATIS)
+                .descripcion(request.getDescripcion().trim())
+                .sellosRequeridos(config.getSellosNecesarios())
+                .activo(request.getActivo() == null || request.getActivo())
+                .build());
+        auditPublisher.publish(AuditAction.LOYALTY_CONFIG_UPDATE, "ADMIN", "RECOMPENSA",
+                recompensa.getId().toString(), "Premio creado: " + recompensa.getDescripcion());
+        return recompensa;
+    }
+
+    @Transactional
+    public Recompensa actualizarRecompensa(Integer id, RecompensaRequest request) {
+        Recompensa recompensa = recompensaRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Recompensa", id));
+        recompensa.setDescripcion(request.getDescripcion().trim());
+        if (request.getActivo() != null) {
+            recompensa.setActivo(request.getActivo());
+        }
+        recompensa.setSellosRequeridos(obtenerConfig().getSellosNecesarios());
+        recompensa = recompensaRepository.save(recompensa);
+        auditPublisher.publish(AuditAction.LOYALTY_CONFIG_UPDATE, "ADMIN", "RECOMPENSA",
+                recompensa.getId().toString(), "Premio actualizado: " + recompensa.getDescripcion());
+        return recompensa;
+    }
+
+    @Transactional
+    public void desactivarRecompensa(Integer id) {
+        Recompensa recompensa = recompensaRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Recompensa", id));
+        recompensa.setActivo(false);
+        recompensaRepository.save(recompensa);
+        auditPublisher.publish(AuditAction.LOYALTY_CONFIG_UPDATE, "ADMIN", "RECOMPENSA",
+                recompensa.getId().toString(), "Premio desactivado: " + recompensa.getDescripcion());
     }
 
     @Transactional(readOnly = true)

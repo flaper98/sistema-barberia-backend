@@ -58,6 +58,13 @@
       <scope>runtime</scope>
     </dependency>
 
+    <!-- ── H2 (Testing) ─────────────────────────────────────── -->
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
     <!-- ── Postgres (solo para el sync de citas públicas desde Vercel) ── -->
     <dependency>
       <groupId>org.postgresql</groupId>

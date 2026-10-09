@@ -9,5 +9,7 @@ import java.util.List;
 @Repository
 public interface RecompensaRepository extends JpaRepository<Recompensa, Integer> {
 
-    List<Recompensa> findByActivoTrue();
+    List<Recompensa> findByActivoTrueOrderByDescripcionAsc();
+
+    List<Recompensa> findAllByOrderByDescripcionAsc();
 }

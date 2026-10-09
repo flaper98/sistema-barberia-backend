@@ -148,4 +148,14 @@ public class ReporteController {
     public ResponseEntity<ApiResponse<LoyaltyReporteDto>> loyalty() {
         return ResponseEntity.ok(ApiResponse.ok(reporteService.getReporteLoyalty()));
     }
+
+    @Operation(summary = "Ingresos agrupados por método de pago en un rango de fechas")
+    @GetMapping("/income-by-payment-method")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<List<IngresosPorMetodoPagoDto>>> ingresosPorMetodoPago(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                reporteService.getIngresosPorMetodoPago(desde, hasta)));
+    }
 }

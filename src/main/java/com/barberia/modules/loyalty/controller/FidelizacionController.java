@@ -7,6 +7,8 @@ import com.barberia.modules.loyalty.dto.AgregarSelloRequest;
 import com.barberia.modules.loyalty.dto.FidelizacionCuentaResponse;
 import com.barberia.modules.loyalty.dto.ReglaFidelizacionResponse;
 import com.barberia.modules.loyalty.dto.SelloResponse;
+import com.barberia.modules.loyalty.dto.CanjearRecompensaRequest;
+import com.barberia.modules.loyalty.dto.RecompensaRequest;
 import com.barberia.modules.loyalty.entity.Recompensa;
 import com.barberia.modules.loyalty.service.impl.FidelizacionServiceImpl;
 import io.swagger.v3.oas.annotations.Operation;
@@ -68,12 +70,34 @@ public class FidelizacionController {
     @Operation(summary = "Canjear recompensa de un cliente",
                description = "El cliente debe tener recompensas disponibles.")
     @PostMapping("/customers/{customerId}/redeem")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<SelloResponse>> canjear(
             @PathVariable Integer customerId,
-            @RequestBody Map<String, String> body) {
-        String motivo = body.getOrDefault("motivo", "Canje de recompensa");
-        return ResponseEntity.ok(ApiResponse.ok(fidelizacionBiz.canjearRecompensa(customerId, motivo)));
+            @Valid @RequestBody CanjearRecompensaRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                fidelizacionBiz.canjearRecompensa(customerId, request)));
+    }
+
+    @Operation(summary = "Entregar premio desde la venta",
+               description = "Cuando se completa un sello en una venta, el admin elige qué premio entregar en ese momento.")
+    @PostMapping("/customers/{customerId}/deliver-reward")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<SelloResponse>> entregarPremioDesdeVenta(
+            @PathVariable Integer customerId,
+            @Valid @RequestBody CanjearRecompensaRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                fidelizacionBiz.entregarPremioDesdeVenta(customerId, request)));
+    }
+
+    @Operation(summary = "Seleccionar premio en venta (sin entregar)",
+               description = "Cuando se completa un sello en una venta, el cliente elige qué premio quiere recibir. Se guarda la selección pero no se entrega hasta que lo reclame en Fidelización.")
+    @PostMapping("/customers/{customerId}/select-reward")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Void>> seleccionarPremio(
+            @PathVariable Integer customerId,
+            @Valid @RequestBody CanjearRecompensaRequest request) {
+        fidelizacionBiz.seleccionarPremio(customerId, request.getRecompensaId());
+        return ResponseEntity.ok(ApiResponse.ok("Premio seleccionado", null));
     }
 
     @Operation(summary = "Editar la descripción de la recompensa pendiente de un cliente",
@@ -93,6 +117,39 @@ public class FidelizacionController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<List<Recompensa>>> listarRecompensas() {
         return ResponseEntity.ok(ApiResponse.ok(fidelizacionBiz.listarRecompensas()));
+    }
+
+    @Operation(summary = "Ver catálogo completo de premios")
+    @GetMapping("/rewards/admin")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<List<Recompensa>>> listarTodasLasRecompensas() {
+        return ResponseEntity.ok(ApiResponse.ok(fidelizacionBiz.listarTodasLasRecompensas()));
+    }
+
+    @Operation(summary = "Crear un premio de fidelización")
+    @PostMapping("/rewards")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Recompensa>> crearRecompensa(
+            @Valid @RequestBody RecompensaRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Premio creado",
+                fidelizacionBiz.crearRecompensa(request)));
+    }
+
+    @Operation(summary = "Modificar un premio de fidelización")
+    @PutMapping("/rewards/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Recompensa>> actualizarRecompensa(
+            @PathVariable Integer id, @Valid @RequestBody RecompensaRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok("Premio actualizado",
+                fidelizacionBiz.actualizarRecompensa(id, request)));
+    }
+
+    @Operation(summary = "Desactivar un premio de fidelización")
+    @DeleteMapping("/rewards/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> desactivarRecompensa(@PathVariable Integer id) {
+        fidelizacionBiz.desactivarRecompensa(id);
+        return ResponseEntity.ok(ApiResponse.ok("Premio desactivado", null));
     }
 
     @Operation(summary = "Clientes con recompensas pendientes de canjear")

@@ -436,6 +436,54 @@ public class ReporteServiceImpl {
     }
 
     // -------------------------------------------------------------------------
+    // Reporte: Ingresos por método de pago
+    // -------------------------------------------------------------------------
+    @Transactional(readOnly = true)
+    @SuppressWarnings("unchecked")
+    public List<IngresosPorMetodoPagoDto> getIngresosPorMetodoPago(LocalDate desde, LocalDate hasta) {
+        // Se agrupa por cada TRAMO de pago (venta_pagos), no por ventas.metodo_pago:
+        // una venta pagada con más de un método guarda "MIXTO" en esa columna,
+        // pero cada tramo real (ej. la mitad en efectivo, la otra en Yape) vive
+        // en venta_pagos -- así el dinero aparece en el método real con el que
+        // se cobró, sin la categoría "MIXTO" agrupando montos que en realidad
+        // son de otros métodos.
+        String sql = "SELECT vp.metodo_pago, COALESCE(SUM(vp.monto), 0), COUNT(*) " +
+                     "FROM venta_pagos vp " +
+                     "JOIN ventas v ON v.id = vp.venta_id " +
+                     "WHERE DATE(v.fecha) BETWEEN :desde AND :hasta AND v.estado = 'COMPLETADA' " +
+                     "GROUP BY vp.metodo_pago " +
+                     "ORDER BY SUM(vp.monto) DESC";
+
+        var query = em.createNativeQuery(sql)
+                .setParameter("desde", desde)
+                .setParameter("hasta", hasta);
+
+        List<Object[]> rows = query.getResultList();
+
+        // Calcular total general para porcentajes
+        BigDecimal totalGeneral = BigDecimal.ZERO;
+        for (Object[] r : rows) {
+            totalGeneral = totalGeneral.add(r[1] != null ? (BigDecimal) r[1] : BigDecimal.ZERO);
+        }
+
+        List<IngresosPorMetodoPagoDto> list = new ArrayList<>();
+        for (Object[] r : rows) {
+            BigDecimal total = r[1] != null ? (BigDecimal) r[1] : BigDecimal.ZERO;
+            BigDecimal porcentaje = totalGeneral.compareTo(BigDecimal.ZERO) > 0
+                    ? total.multiply(BigDecimal.valueOf(100)).divide(totalGeneral, 2, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO;
+
+            list.add(IngresosPorMetodoPagoDto.builder()
+                    .metodoPago((String) r[0])
+                    .total(total)
+                    .cantidad(((Number) r[2]).longValue())
+                    .porcentaje(porcentaje)
+                    .build());
+        }
+        return list;
+    }
+
+    // -------------------------------------------------------------------------
     // Reporte financiero con periodo en texto
     // -------------------------------------------------------------------------
     @Transactional(readOnly = true)
